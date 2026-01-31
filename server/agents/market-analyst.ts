@@ -283,6 +283,50 @@ export class MarketAnalystAgent extends BaseAgent {
     return this.lastAnalysis;
   }
 
+  // ============ AI INTEGRATION ============
+
+  protected getContextForAI(): any {
+    const analyses: any = {};
+    for (const [interval, analysis] of this.lastAnalysis) {
+      analyses[interval] = {
+        signal: analysis.technicalSummary.signal,
+        score: analysis.technicalSummary.score,
+        trend: analysis.technicalSummary.trend,
+        rsi: analysis.technicalSummary.indicators.rsi,
+        recommendation: analysis.recommendation,
+      };
+    }
+    return {
+      agentId: this.config.id,
+      timeframes: this.agentConfig.analysisIntervals,
+      analyses,
+      combinedRecommendation: this.generateCombinedRecommendation(),
+    };
+  }
+
+  protected getAgentRole(): string {
+    return 'technical analysis specialist focusing on RSI, MACD, trend analysis, and chart patterns';
+  }
+
+  protected getRuleBasedResponse(query: string): string | null {
+    // Return the formatted analysis report
+    if (this.lastAnalysis.size === 0) {
+      return `**📊 Market Analyst:** No analysis available yet. Run analysis first.`;
+    }
+
+    const parts: string[] = [`**📊 Market Analyst Report**\n`];
+    
+    for (const [interval, analysis] of this.lastAnalysis) {
+      const rec = analysis.recommendation;
+      parts.push(`**${interval.toUpperCase()}:** ${analysis.technicalSummary.signal} (${rec.confidence.toFixed(0)}%) - ${rec.action}`);
+    }
+
+    const combined = this.generateCombinedRecommendation();
+    parts.push(`\n**Overall:** ${combined.action.toUpperCase()} @ ${combined.confidence.toFixed(0)}%`);
+
+    return parts.join('\n');
+  }
+
   // ============ SWARM COMMUNICATION ============
 
   /**

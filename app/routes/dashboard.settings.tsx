@@ -21,9 +21,16 @@ import {
   CheckCircle,
   AlertTriangle,
   XCircle,
+  Brain,
 } from 'lucide-react';
 
 interface AppSettings {
+  aiProvider: 'anthropic' | 'openai' | 'none';
+  aiApiKey: string;
+  aiModel: string;
+  aiMaxTokens: number;
+  aiTemperature: number;
+  aiEnabled: boolean;
   lnmarketsKey: string;
   lnmarketsSecret: string;
   lnmarketsPassphrase: string;
@@ -81,7 +88,7 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showSecrets, setShowSecrets] = useState(false);
-  const [activeTab, setActiveTab] = useState('lnmarkets');
+  const [activeTab, setActiveTab] = useState('ai');
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -160,6 +167,7 @@ export default function SettingsPage() {
   };
 
   const tabs = [
+    { id: 'ai', label: 'AI Configuration', icon: Brain },
     { id: 'lnmarkets', label: 'LN Markets', icon: Zap },
     { id: 'swarm', label: 'Swarm Control', icon: Bot },
     { id: 'risk', label: 'Risk Management', icon: Shield },
@@ -248,6 +256,154 @@ export default function SettingsPage() {
 
           {/* Content */}
           <div className="flex-1 bg-gray-800 rounded-lg border border-gray-700 p-6">
+            {/* AI Configuration Tab */}
+            {activeTab === 'ai' && settings && (
+              <div>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <Brain className="w-5 h-5 text-orange-500" />
+                  AI Configuration
+                </h2>
+                <p className="text-gray-400 mb-6">
+                  Enable AI-powered reasoning for your trading agents. The swarm will use AI to analyze markets,
+                  generate insights, and make more informed trading decisions.
+                </p>
+
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between p-4 bg-gray-700/50 rounded-lg">
+                    <div>
+                      <div className="font-medium">Enable AI</div>
+                      <div className="text-sm text-gray-400">Use AI for agent reasoning and analysis</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.aiEnabled}
+                        onChange={(e) => saveSettings({ aiEnabled: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 peer-focus:ring-2 peer-focus:ring-orange-500 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">AI Provider</label>
+                    <select
+                      value={settings.aiProvider}
+                      onChange={(e) => saveSettings({ aiProvider: e.target.value as any })}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500"
+                    >
+                      <option value="anthropic">Anthropic (Claude)</option>
+                      <option value="openai">OpenAI (GPT)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">API Key</label>
+                    <div className="flex gap-2">
+                      <input
+                        type={showSecrets ? 'text' : 'password'}
+                        value={settings.aiApiKey === '••••••••' ? '' : settings.aiApiKey}
+                        onChange={(e) => updateSetting('aiApiKey', e.target.value)}
+                        onBlur={() => settings.aiApiKey !== '••••••••' && saveSettings({ aiApiKey: settings.aiApiKey })}
+                        placeholder={settings.aiProvider === 'anthropic' ? 'sk-ant-...' : 'sk-...'}
+                        className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSecrets(!showSecrets)}
+                        className="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg"
+                      >
+                        {showSecrets ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {settings.aiProvider === 'anthropic' 
+                        ? 'Get from console.anthropic.com' 
+                        : 'Get from platform.openai.com'}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Model</label>
+                    <select
+                      value={settings.aiModel}
+                      onChange={(e) => saveSettings({ aiModel: e.target.value })}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500"
+                    >
+                      {settings.aiProvider === 'anthropic' ? (
+                        <>
+                          <option value="claude-sonnet-4-20250514">Claude Sonnet 4 (Recommended)</option>
+                          <option value="claude-opus-4-20250514">Claude Opus 4 (Most Capable)</option>
+                          <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+                          <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (Fast)</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="gpt-4o">GPT-4o (Recommended)</option>
+                          <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                          <option value="gpt-4">GPT-4</option>
+                          <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Fast)</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-1">Max Tokens</label>
+                      <input
+                        type="number"
+                        min="256"
+                        max="4096"
+                        value={settings.aiMaxTokens}
+                        onChange={(e) => updateSetting('aiMaxTokens', parseInt(e.target.value))}
+                        onBlur={() => saveSettings({ aiMaxTokens: settings.aiMaxTokens })}
+                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-1">Temperature</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={settings.aiTemperature}
+                        onChange={(e) => updateSetting('aiTemperature', parseFloat(e.target.value))}
+                        onBlur={() => saveSettings({ aiTemperature: settings.aiTemperature })}
+                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">0 = deterministic, 1 = creative</p>
+                    </div>
+                  </div>
+
+                  {settings.aiEnabled && settings.aiApiKey && settings.aiApiKey !== '••••••••' && (
+                    <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+                      <div className="flex items-center gap-2 text-green-400">
+                        <CheckCircle className="w-5 h-5" />
+                        <span>AI is configured and ready</span>
+                      </div>
+                      <p className="text-sm text-gray-400 mt-1">
+                        Using {settings.aiProvider === 'anthropic' ? 'Claude' : 'GPT'} ({settings.aiModel})
+                      </p>
+                    </div>
+                  )}
+
+                  {settings.aiEnabled && (!settings.aiApiKey || settings.aiApiKey === '••••••••') && (
+                    <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                      <div className="flex items-center gap-2 text-yellow-400">
+                        <AlertTriangle className="w-5 h-5" />
+                        <span>API key required</span>
+                      </div>
+                      <p className="text-sm text-gray-400 mt-1">
+                        Enter your {settings.aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI'} API key to enable AI features.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* LN Markets Tab */}
             {activeTab === 'lnmarkets' && (
               <div>

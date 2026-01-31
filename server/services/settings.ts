@@ -11,6 +11,16 @@ import { eq } from 'drizzle-orm';
 
 export interface AppSettings {
   // ===========================================
+  // AI Configuration
+  // ===========================================
+  aiProvider: 'anthropic' | 'openai' | 'none';
+  aiApiKey: string;
+  aiModel: string;
+  aiMaxTokens: number;
+  aiTemperature: number;
+  aiEnabled: boolean;
+
+  // ===========================================
   // LN Markets API Credentials
   // ===========================================
   lnmarketsKey: string;
@@ -76,6 +86,14 @@ export interface AppSettings {
 
 // Default settings (safe defaults, no credentials)
 const DEFAULT_SETTINGS: AppSettings = {
+  // AI
+  aiProvider: 'anthropic',
+  aiApiKey: '',
+  aiModel: 'claude-sonnet-4-20250514',
+  aiMaxTokens: 1024,
+  aiTemperature: 0.7,
+  aiEnabled: false,
+
   // LN Markets
   lnmarketsKey: '',
   lnmarketsSecret: '',
@@ -126,6 +144,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 // Settings that should be masked in responses
 const SENSITIVE_KEYS = new Set([
+  'aiApiKey',
   'lnmarketsKey',
   'lnmarketsSecret',
   'lnmarketsPassphrase',
@@ -135,6 +154,14 @@ const SENSITIVE_KEYS = new Set([
 
 // Setting descriptions for UI/docs
 const SETTING_DESCRIPTIONS: Record<string, string> = {
+  // AI
+  aiProvider: 'AI provider (anthropic or openai)',
+  aiApiKey: 'API key for AI provider',
+  aiModel: 'AI model to use (e.g., claude-sonnet-4-20250514, gpt-4)',
+  aiMaxTokens: 'Maximum tokens for AI responses',
+  aiTemperature: 'AI temperature (0-1, higher = more creative)',
+  aiEnabled: 'Enable AI-powered agent reasoning',
+
   // LN Markets
   lnmarketsKey: 'LN Markets API Key',
   lnmarketsSecret: 'LN Markets API Secret',
@@ -185,6 +212,7 @@ const SETTING_DESCRIPTIONS: Record<string, string> = {
 
 // Setting categories for UI grouping
 export const SETTING_CATEGORIES = {
+  'AI Configuration': ['aiEnabled', 'aiProvider', 'aiApiKey', 'aiModel', 'aiMaxTokens', 'aiTemperature'],
   'LN Markets API': ['lnmarketsKey', 'lnmarketsSecret', 'lnmarketsPassphrase', 'lnmarketsNetwork'],
   'Swarm Control': ['autoStartSwarm', 'autoExecuteTrades'],
   'Execution': ['minTradeConfidence', 'maxOpenPositions', 'tradeCooldownMinutes'],

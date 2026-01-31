@@ -381,6 +381,45 @@ export class RiskManagerAgent extends BaseAgent {
     return this.lastAssessment;
   }
 
+  // ============ AI INTEGRATION ============
+
+  protected getContextForAI(): any {
+    if (!this.lastAssessment) {
+      return { status: 'no assessment available' };
+    }
+    const a = this.lastAssessment;
+    return {
+      balance: a.balance,
+      totalExposure: a.totalExposure,
+      exposurePercent: a.exposurePercent,
+      dailyPL: a.dailyPL,
+      dailyPLPercent: a.dailyPLPercent,
+      openPositions: a.positions.length,
+      canOpenNewPosition: a.canOpenNewPosition,
+      availableMargin: a.availableMargin,
+      alerts: a.alerts,
+      riskParams: this.riskParams,
+    };
+  }
+
+  protected getAgentRole(): string {
+    return 'risk management specialist focusing on position sizing, exposure limits, and portfolio risk';
+  }
+
+  protected getRuleBasedResponse(query: string): string | null {
+    if (!this.lastAssessment) {
+      return `**🛡️ Risk Manager:** No assessment available - LN Markets may not be connected.`;
+    }
+
+    const a = this.lastAssessment;
+    return `**🛡️ Risk Manager Report**
+• Balance: ${a.balance.toLocaleString()} sats
+• Exposure: ${a.exposurePercent.toFixed(1)}%
+• Daily P&L: ${a.dailyPLPercent.toFixed(2)}%
+• Can Trade: ${a.canOpenNewPosition ? '✅' : '❌'}
+• Alerts: ${a.alerts.length > 0 ? a.alerts.map(al => al.message).join(', ') : 'None'}`;
+  }
+
   // ============ SWARM COMMUNICATION ============
 
   /**

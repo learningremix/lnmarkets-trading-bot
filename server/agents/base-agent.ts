@@ -5,6 +5,7 @@
 import { EventEmitter } from 'events';
 import { saveAgentState, loadAgentState, type AgentStateData } from '../services/state';
 import { getMessageBus, type MessageBus, type AgentMessage } from './message-bus';
+import { aiService } from '../services/ai';
 
 export type AgentStatus = 'idle' | 'analyzing' | 'executing' | 'error' | 'disabled';
 
@@ -171,8 +172,48 @@ export abstract class BaseAgent extends EventEmitter {
 
   /**
    * Generate a response to a chat message (override in subclasses)
+   * Uses AI if enabled, otherwise returns rule-based response
    */
   protected async generateChatResponse(query: string): Promise<string | null> {
+    // Try AI-powered response first
+    const aiEnabled = await aiService.isEnabled();
+    if (aiEnabled) {
+      const context = this.getContextForAI();
+      const aiResponse = await aiService.generateAgentResponse(
+        this.config.name,
+        this.getAgentRole(),
+        query,
+        context
+      );
+      if (aiResponse) return aiResponse;
+    }
+
+    // Fallback to rule-based response
+    return this.getRuleBasedResponse(query);
+  }
+
+  /**
+   * Get context data for AI (override in subclasses)
+   */
+  protected getContextForAI(): any {
+    return {
+      agentId: this.config.id,
+      status: this.status,
+      metrics: this.metrics,
+    };
+  }
+
+  /**
+   * Get agent role description for AI (override in subclasses)
+   */
+  protected getAgentRole(): string {
+    return 'trading agent';
+  }
+
+  /**
+   * Rule-based response fallback (override in subclasses)
+   */
+  protected getRuleBasedResponse(query: string): string | null {
     return `[${this.config.name}] I received your message but don't have a specific response.`;
   }
 
@@ -187,6 +228,19 @@ export abstract class BaseAgent extends EventEmitter {
     confidence: number;
     reason: string;
   }> {
+    // Try AI-powered evaluation
+    const aiEnabled = await aiService.isEnabled();
+    if (aiEnabled) {
+      const evaluation = await aiService.evaluateTrade({
+        direction,
+        confidence: 70,
+        reason: context || 'Trade proposal',
+        marketData: this.getContextForAI(),
+        riskAssessment: {},
+      });
+      return evaluation;
+    }
+
     return {
       opinion: 'neutral',
       confidence: 50,
