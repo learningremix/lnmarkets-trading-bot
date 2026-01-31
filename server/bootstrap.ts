@@ -22,6 +22,7 @@ export async function bootstrapTradingSwarm(): Promise<void> {
       riskManager: true,
       execution: true,
       researcher: true,
+      tradingView: !!process.env.TRADINGVIEW_SIGNAL_URL,
     },
     executionConfig: {
       autoExecute: process.env.AUTO_EXECUTE_TRADES === 'true',

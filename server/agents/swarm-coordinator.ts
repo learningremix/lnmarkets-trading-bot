@@ -10,6 +10,7 @@ import { MarketAnalystAgent } from './market-analyst';
 import { RiskManagerAgent } from './risk-manager';
 import { ExecutionAgent, type TradeSignal } from './execution-agent';
 import { ResearcherAgent } from './researcher-agent';
+import { TradingViewAgent, type TVSignal } from './tradingview-agent';
 
 export interface SwarmConfig {
   lnMarkets?: LNMarketsConfig;
@@ -19,6 +20,13 @@ export interface SwarmConfig {
     riskManager: boolean;
     execution: boolean;
     researcher: boolean;
+    tradingView: boolean;
+  };
+  signalSources: {
+    useMarketAnalyst: boolean;
+    useTradingView: boolean;
+    useResearcher: boolean;
+    requireMultipleSources: boolean;
   };
   marketAnalystConfig?: {
     intervalMs?: number;
@@ -43,6 +51,14 @@ export interface SwarmConfig {
   researcherConfig?: {
     intervalMs?: number;
     enableOnChain?: boolean;
+  };
+  tradingViewConfig?: {
+    intervalMs?: number;
+    apiUrl?: string;
+    symbol?: string;
+    exchange?: string;
+    timeframes?: string[];
+    requireStrongSignal?: boolean;
   };
 }
 
@@ -73,6 +89,7 @@ export class SwarmCoordinator extends EventEmitter {
   private riskManager: RiskManagerAgent | null = null;
   private executionAgent: ExecutionAgent | null = null;
   private researcher: ResearcherAgent | null = null;
+  private tradingView: TradingViewAgent | null = null;
 
   constructor(config: Partial<SwarmConfig> = {}) {
     super();
@@ -84,6 +101,13 @@ export class SwarmCoordinator extends EventEmitter {
         riskManager: true,
         execution: true,
         researcher: true,
+        tradingView: true,
+      },
+      signalSources: {
+        useMarketAnalyst: true,
+        useTradingView: true,
+        useResearcher: false,
+        requireMultipleSources: false,
       },
       ...config,
     };
@@ -150,6 +174,22 @@ export class SwarmCoordinator extends EventEmitter {
       this.setupAgentListeners(this.researcher);
     }
 
+    // TradingView Agent
+    if (this.config.enabledAgents.tradingView) {
+      this.tradingView = new TradingViewAgent({
+        id: 'tradingview',
+        name: 'TradingView Signals',
+        apiUrl: this.config.tradingViewConfig?.apiUrl || process.env.TRADINGVIEW_SIGNAL_URL || 'http://localhost:8080',
+        symbol: this.config.tradingViewConfig?.symbol || process.env.TRADINGVIEW_SIGNAL_SYMBOL || 'BTCUSD',
+        exchange: this.config.tradingViewConfig?.exchange || process.env.TRADINGVIEW_SIGNAL_EXCHANGE || 'COINBASE',
+        timeframes: this.config.tradingViewConfig?.timeframes || ['1h', '4h'],
+        requireStrongSignal: this.config.tradingViewConfig?.requireStrongSignal ?? false,
+        intervalMs: this.config.tradingViewConfig?.intervalMs,
+      });
+      this.agents.set('tradingview', this.tradingView);
+      this.setupAgentListeners(this.tradingView);
+    }
+
     // Wire up inter-agent communication
     this.setupInterAgentCommunication();
   }
@@ -211,6 +251,29 @@ export class SwarmCoordinator extends EventEmitter {
             score: report.sentiment.score,
           });
         }
+      });
+    }
+
+    // TradingView -> Execution Agent
+    if (this.tradingView && this.executionAgent && this.config.signalSources?.useTradingView) {
+      this.tradingView.on('combined_signal', (tvSignal: TVSignal) => {
+        if (tvSignal === 'NEUTRAL') return;
+
+        const direction = (tvSignal === 'BUY' || tvSignal === 'STRONG_BUY') ? 'long' : 'short';
+        const confidence = tvSignal.includes('STRONG') ? 85 : 65;
+
+        const signal: TradeSignal = {
+          id: `tv-${Date.now()}`,
+          timestamp: new Date(),
+          direction,
+          confidence,
+          reason: `TradingView signal: ${tvSignal}`,
+          source: 'tradingview',
+          price: 0,
+        };
+
+        this.emit('tradingview_signal', { signal: tvSignal, direction, confidence });
+        this.executionAgent!.addSignal(signal);
       });
     }
   }
@@ -349,6 +412,10 @@ export class SwarmCoordinator extends EventEmitter {
 
   getResearcher(): ResearcherAgent | null {
     return this.researcher;
+  }
+
+  getTradingView(): TradingViewAgent | null {
+    return this.tradingView;
   }
 
   getLNMarkets(): LNMarketsService | null {
