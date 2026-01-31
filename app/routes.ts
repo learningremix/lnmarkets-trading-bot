@@ -8,4 +8,5 @@ export default [
   route("api/market", "routes/api.market.ts"),
   route("api/positions", "routes/api.positions.ts"),
   route("api/control", "routes/api.control.ts"),
+  route("api/settings", "routes/api.settings.ts"),
 ] satisfies RouteConfig;

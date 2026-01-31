@@ -1,5 +1,6 @@
 /**
  * Server Bootstrap - Initialize trading swarm on server start
+ * Settings are loaded from database, with env fallback for first run
  */
 
 import { getSwarmCoordinator, type SwarmConfig } from './agents';
@@ -14,34 +15,21 @@ export async function bootstrapTradingSwarm(): Promise<void> {
 
   console.log('⚡ Bootstrapping LN Markets Trading Swarm...');
 
-  // Read configuration from environment
+  // Initial config from env (settings loaded from DB by agents at runtime)
   const config: Partial<SwarmConfig> = {
-    autoStart: process.env.AUTO_START_SWARM === 'true',
+    autoStart: false, // Will be controlled by DB settings
     enabledAgents: {
       marketAnalyst: true,
       riskManager: true,
       execution: true,
       researcher: true,
-      tradingView: !!process.env.TRADINGVIEW_SIGNAL_URL,
+      tradingView: false, // Enabled via settings
     },
-    executionConfig: {
-      autoExecute: process.env.AUTO_EXECUTE_TRADES === 'true',
-      minConfidence: parseInt(process.env.MIN_TRADE_CONFIDENCE || '70', 10),
-      maxOpenPositions: parseInt(process.env.MAX_OPEN_POSITIONS || '3', 10),
-    },
-    riskManagerConfig: {
-      maxPositionSizePercent: parseInt(process.env.MAX_POSITION_SIZE_PERCENT || '10', 10),
-      maxTotalExposurePercent: parseInt(process.env.MAX_EXPOSURE_PERCENT || '50', 10),
-      maxLeverage: parseInt(process.env.MAX_LEVERAGE || '25', 10),
-      defaultStopLossPercent: parseInt(process.env.DEFAULT_STOP_LOSS_PERCENT || '5', 10),
-      maxDailyLossPercent: parseInt(process.env.MAX_DAILY_LOSS_PERCENT || '10', 10),
-    },
-    marketAnalystConfig: {
-      analysisIntervals: ['1h', '4h'],
-      minConfidence: 60,
-    },
-    researcherConfig: {
-      enableOnChain: process.env.ENABLE_ONCHAIN_METRICS === 'true',
+    signalSources: {
+      useMarketAnalyst: true,
+      useTradingView: false,
+      useResearcher: false,
+      requireMultipleSources: false,
     },
   };
 
@@ -49,7 +37,7 @@ export async function bootstrapTradingSwarm(): Promise<void> {
   const lnMarketsKey = process.env.LNMARKETS_KEY;
   const lnMarketsSecret = process.env.LNMARKETS_SECRET;
   const lnMarketsPassphrase = process.env.LNMARKETS_PASSPHRASE;
-  const lnMarketsNetwork = (process.env.LNMARKETS_NETWORK || 'mainnet') as 'mainnet' | 'testnet';
+  const lnMarketsNetwork = (process.env.LNMARKETS_NETWORK || 'testnet') as 'mainnet' | 'testnet';
 
   const swarm = getSwarmCoordinator(config);
 
@@ -72,8 +60,8 @@ export async function bootstrapTradingSwarm(): Promise<void> {
     console.warn('⚠️ Trading halted:', data.reason);
   });
 
-  swarm.on('research_report', (report) => {
-    console.log(`📊 Research: ${report.sentiment.overall} (${report.sentiment.score})`);
+  swarm.on('tradingview_signal', ({ signal, direction, confidence }) => {
+    console.log(`📈 TradingView signal: ${signal} → ${direction} (${confidence}%)`);
   });
 
   // Initialize with or without authentication
@@ -94,19 +82,14 @@ export async function bootstrapTradingSwarm(): Promise<void> {
 
   initialized = true;
 
-  if (config.autoStart) {
-    console.log('🤖 Trading swarm started automatically');
-  } else {
-    console.log('🤖 Trading swarm initialized (not auto-started)');
-    console.log('   Set AUTO_START_SWARM=true to auto-start');
-  }
-
-  // Log configuration summary
-  console.log('\n📋 Configuration:');
-  console.log(`   Auto-execute trades: ${config.executionConfig?.autoExecute ? 'YES ⚠️' : 'NO (manual)'}`);
-  console.log(`   Max open positions: ${config.executionConfig?.maxOpenPositions}`);
-  console.log(`   Max leverage: ${config.riskManagerConfig?.maxLeverage}x`);
-  console.log(`   Max daily loss: ${config.riskManagerConfig?.maxDailyLossPercent}%`);
+  console.log('');
+  console.log('🤖 Trading swarm initialized');
+  console.log('📊 Dashboard: http://localhost:3000/dashboard');
+  console.log('⚙️  Settings: http://localhost:3000/dashboard/settings');
+  console.log('🔌 Control API: http://localhost:3000/api/control');
+  console.log('');
+  console.log('💡 Configure trading settings via the dashboard');
+  console.log('   All settings are stored in the database');
   console.log('');
 }
 
