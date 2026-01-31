@@ -3,6 +3,7 @@ version: '3.8'
 services:
   # ===========================================
   # Trading Bot Application
+  # ALL settings stored in database - only DATABASE_URL needed
   # ===========================================
   app:
     build:
@@ -15,15 +16,6 @@ services:
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-tradingbot}@db:5432/lnmarkets_bot
-      - REDIS_URL=redis://redis:6379
-      - TRADINGVIEW_SIGNAL_URL=http://tradingview-ta:8000
-      - TRADINGVIEW_SIGNAL_SYMBOL=${TRADINGVIEW_SYMBOL:-BTCUSD}
-      - TRADINGVIEW_SIGNAL_EXCHANGE=${TRADINGVIEW_EXCHANGE:-COINBASE}
-      - LNMARKETS_KEY=${LNMARKETS_KEY}
-      - LNMARKETS_SECRET=${LNMARKETS_SECRET}
-      - LNMARKETS_PASSPHRASE=${LNMARKETS_PASSPHRASE}
-      - LNMARKETS_NETWORK=${LNMARKETS_NETWORK:-testnet}
-      - CONTROL_API_KEY=${CONTROL_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy

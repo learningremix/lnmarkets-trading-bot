@@ -1,9 +1,10 @@
 /**
  * Server Bootstrap - Initialize trading swarm on server start
- * Settings are loaded from database, with env fallback for first run
+ * ALL settings are loaded from database - only DATABASE_URL is in .env
  */
 
 import { getSwarmCoordinator, type SwarmConfig } from './agents';
+import { settingsService } from './services/settings';
 
 let initialized = false;
 
@@ -15,29 +16,52 @@ export async function bootstrapTradingSwarm(): Promise<void> {
 
   console.log('⚡ Bootstrapping LN Markets Trading Swarm...');
 
-  // Initial config from env (settings loaded from DB by agents at runtime)
+  // Initialize settings with defaults if first run
+  await settingsService.initializeDefaults();
+
+  // Load settings from database
+  const settings = await settingsService.getSettings();
+
+  // Build config from database settings
   const config: Partial<SwarmConfig> = {
-    autoStart: false, // Will be controlled by DB settings
+    autoStart: settings.autoStartSwarm,
     enabledAgents: {
-      marketAnalyst: true,
+      marketAnalyst: settings.useMarketAnalyst,
       riskManager: true,
       execution: true,
-      researcher: true,
-      tradingView: false, // Enabled via settings
+      researcher: settings.useResearcher,
+      tradingView: settings.tradingViewEnabled,
     },
     signalSources: {
-      useMarketAnalyst: true,
-      useTradingView: false,
-      useResearcher: false,
-      requireMultipleSources: false,
+      useMarketAnalyst: settings.useMarketAnalyst,
+      useTradingView: settings.useTradingView,
+      useResearcher: settings.useResearcher,
+      requireMultipleSources: settings.requireMultipleSources,
+    },
+    tradingViewConfig: {
+      apiUrl: settings.tradingViewApiUrl,
+      symbol: settings.tradingViewSymbol,
+      exchange: settings.tradingViewExchange,
+      timeframes: settings.tradingViewTimeframes,
+      requireStrongSignal: settings.tradingViewRequireStrong,
+    },
+    executionConfig: {
+      autoExecute: settings.autoExecuteTrades,
+      minConfidence: settings.minTradeConfidence,
+      maxOpenPositions: settings.maxOpenPositions,
+      cooldownMs: settings.tradeCooldownMinutes * 60 * 1000,
+    },
+    riskManagerConfig: {
+      maxPositionSizePercent: settings.maxPositionSizePercent,
+      maxTotalExposurePercent: settings.maxExposurePercent,
+      maxLeverage: settings.maxLeverage,
+      defaultStopLossPercent: settings.defaultStopLossPercent,
+      maxDailyLossPercent: settings.maxDailyLossPercent,
     },
   };
 
-  // Check for LN Markets credentials
-  const lnMarketsKey = process.env.LNMARKETS_KEY;
-  const lnMarketsSecret = process.env.LNMARKETS_SECRET;
-  const lnMarketsPassphrase = process.env.LNMARKETS_PASSPHRASE;
-  const lnMarketsNetwork = (process.env.LNMARKETS_NETWORK || 'testnet') as 'mainnet' | 'testnet';
+  // Get LN Markets credentials from database
+  const lnMarketsConfig = await settingsService.getLNMarketsConfig();
 
   const swarm = getSwarmCoordinator(config);
 
@@ -65,18 +89,13 @@ export async function bootstrapTradingSwarm(): Promise<void> {
   });
 
   // Initialize with or without authentication
-  if (lnMarketsKey && lnMarketsSecret && lnMarketsPassphrase) {
-    console.log(`🔐 Initializing with LN Markets API (${lnMarketsNetwork})...`);
-    await swarm.initialize({
-      key: lnMarketsKey,
-      secret: lnMarketsSecret,
-      passphrase: lnMarketsPassphrase,
-      network: lnMarketsNetwork,
-    });
+  if (lnMarketsConfig) {
+    console.log(`🔐 Initializing with LN Markets API (${lnMarketsConfig.network})...`);
+    await swarm.initialize(lnMarketsConfig);
     console.log('✅ Authenticated with LN Markets');
   } else {
-    console.log('⚠️ No LN Markets credentials - running in public API mode');
-    console.log('   Set LNMARKETS_KEY, LNMARKETS_SECRET, LNMARKETS_PASSPHRASE for trading');
+    console.log('⚠️ No LN Markets credentials configured');
+    console.log('   Configure via POST /api/settings with action: configure_lnmarkets');
     await swarm.initialize();
   }
 
@@ -95,11 +114,13 @@ export async function bootstrapTradingSwarm(): Promise<void> {
   console.log('');
   console.log('🤖 Trading swarm initialized');
   console.log('📊 Dashboard: http://localhost:3000/dashboard');
-  console.log('⚙️  Settings: http://localhost:3000/dashboard/settings');
-  console.log('🔌 Control API: http://localhost:3000/api/control');
+  console.log('⚙️  Settings: http://localhost:3000/api/settings');
+  console.log('💬 Chat API: http://localhost:3000/api/chat');
   console.log('');
-  console.log('💡 Configure trading settings via the dashboard');
-  console.log('   All settings and state are stored in the database');
+  console.log('💡 All settings stored in database:');
+  console.log('   GET  /api/settings           - View all settings');
+  console.log('   POST /api/settings           - Update settings');
+  console.log('   POST /api/settings?action=configure_lnmarkets - Set LN Markets API');
   console.log('');
 }
 

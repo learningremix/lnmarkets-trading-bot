@@ -1,60 +1,96 @@
 /**
  * Settings Service - Database-backed configuration
- * All trading settings are stored in DB and configurable via dashboard
+ * ALL settings are stored in DB - only DATABASE_URL is in .env
  */
 
 import { getDatabase } from '../../database/context';
 import { settings } from '../../database/schema';
 import { eq } from 'drizzle-orm';
 
-export interface TradingSettings {
+// ============ SETTINGS INTERFACE ============
+
+export interface AppSettings {
+  // ===========================================
+  // LN Markets API Credentials
+  // ===========================================
+  lnmarketsKey: string;
+  lnmarketsSecret: string;
+  lnmarketsPassphrase: string;
+  lnmarketsNetwork: 'mainnet' | 'testnet';
+
+  // ===========================================
   // Swarm Control
+  // ===========================================
   autoStartSwarm: boolean;
   autoExecuteTrades: boolean;
-  
-  // Execution
+
+  // ===========================================
+  // Execution Settings
+  // ===========================================
   minTradeConfidence: number;
   maxOpenPositions: number;
   tradeCooldownMinutes: number;
-  
+
+  // ===========================================
   // Risk Management
+  // ===========================================
   maxPositionSizePercent: number;
   maxExposurePercent: number;
   maxLeverage: number;
   defaultStopLossPercent: number;
   defaultTakeProfitPercent: number;
   maxDailyLossPercent: number;
-  
+
+  // ===========================================
   // Signal Sources
+  // ===========================================
   useMarketAnalyst: boolean;
   useTradingView: boolean;
   useResearcher: boolean;
   requireMultipleSources: boolean;
-  
-  // TradingView
+
+  // ===========================================
+  // TradingView Integration
+  // ===========================================
   tradingViewEnabled: boolean;
   tradingViewApiUrl: string;
   tradingViewSymbol: string;
   tradingViewExchange: string;
   tradingViewTimeframes: string[];
   tradingViewRequireStrong: boolean;
-  
-  // Optional Features
-  enableOnChainMetrics: boolean;
+
+  // ===========================================
+  // Notifications
+  // ===========================================
   enableTelegramNotifications: boolean;
+  telegramBotToken: string;
   telegramChatId: string;
+
+  // ===========================================
+  // Advanced
+  // ===========================================
+  enableOnChainMetrics: boolean;
+  controlApiKey: string;
+  debugMode: boolean;
 }
 
-const DEFAULT_SETTINGS: TradingSettings = {
+// Default settings (safe defaults, no credentials)
+const DEFAULT_SETTINGS: AppSettings = {
+  // LN Markets
+  lnmarketsKey: '',
+  lnmarketsSecret: '',
+  lnmarketsPassphrase: '',
+  lnmarketsNetwork: 'testnet',
+
   // Swarm Control
   autoStartSwarm: false,
   autoExecuteTrades: false,
-  
+
   // Execution
   minTradeConfidence: 70,
   maxOpenPositions: 3,
   tradeCooldownMinutes: 1,
-  
+
   // Risk Management
   maxPositionSizePercent: 10,
   maxExposurePercent: 50,
@@ -62,35 +98,113 @@ const DEFAULT_SETTINGS: TradingSettings = {
   defaultStopLossPercent: 5,
   defaultTakeProfitPercent: 10,
   maxDailyLossPercent: 10,
-  
+
   // Signal Sources
   useMarketAnalyst: true,
   useTradingView: false,
   useResearcher: false,
   requireMultipleSources: false,
-  
+
   // TradingView
   tradingViewEnabled: false,
-  tradingViewApiUrl: '',
+  tradingViewApiUrl: 'http://tradingview-ta:8000',
   tradingViewSymbol: 'BTCUSD',
   tradingViewExchange: 'COINBASE',
   tradingViewTimeframes: ['1h', '4h'],
   tradingViewRequireStrong: false,
-  
-  // Optional Features
-  enableOnChainMetrics: false,
+
+  // Notifications
   enableTelegramNotifications: false,
+  telegramBotToken: '',
   telegramChatId: '',
+
+  // Advanced
+  enableOnChainMetrics: false,
+  controlApiKey: '',
+  debugMode: false,
 };
 
-// In-memory cache for settings
-let settingsCache: TradingSettings | null = null;
+// Settings that should be masked in responses
+const SENSITIVE_KEYS = new Set([
+  'lnmarketsKey',
+  'lnmarketsSecret',
+  'lnmarketsPassphrase',
+  'telegramBotToken',
+  'controlApiKey',
+]);
+
+// Setting descriptions for UI/docs
+const SETTING_DESCRIPTIONS: Record<string, string> = {
+  // LN Markets
+  lnmarketsKey: 'LN Markets API Key',
+  lnmarketsSecret: 'LN Markets API Secret',
+  lnmarketsPassphrase: 'LN Markets API Passphrase',
+  lnmarketsNetwork: 'LN Markets network (mainnet or testnet)',
+
+  // Swarm Control
+  autoStartSwarm: 'Auto-start trading agents when server starts',
+  autoExecuteTrades: '⚠️ Enable automatic trade execution (DANGEROUS)',
+
+  // Execution
+  minTradeConfidence: 'Minimum confidence score to execute trades (0-100)',
+  maxOpenPositions: 'Maximum number of concurrent positions',
+  tradeCooldownMinutes: 'Minimum time between trades in minutes',
+
+  // Risk Management
+  maxPositionSizePercent: 'Maximum % of balance per position',
+  maxExposurePercent: 'Maximum % of balance in all positions',
+  maxLeverage: 'Maximum leverage allowed',
+  defaultStopLossPercent: 'Default stop loss percentage',
+  defaultTakeProfitPercent: 'Default take profit percentage',
+  maxDailyLossPercent: 'Stop trading after this daily loss %',
+
+  // Signal Sources
+  useMarketAnalyst: 'Use built-in technical analysis',
+  useTradingView: 'Use TradingView external signals',
+  useResearcher: 'Use news sentiment analysis',
+  requireMultipleSources: 'Require multiple sources to agree before trading',
+
+  // TradingView
+  tradingViewEnabled: 'Enable TradingView integration',
+  tradingViewApiUrl: 'TradingView TA API URL',
+  tradingViewSymbol: 'Trading symbol (e.g., BTCUSD)',
+  tradingViewExchange: 'Exchange for TradingView (e.g., COINBASE)',
+  tradingViewTimeframes: 'Timeframes to analyze',
+  tradingViewRequireStrong: 'Only trade on STRONG signals',
+
+  // Notifications
+  enableTelegramNotifications: 'Send notifications to Telegram',
+  telegramBotToken: 'Telegram Bot Token',
+  telegramChatId: 'Telegram Chat ID for notifications',
+
+  // Advanced
+  enableOnChainMetrics: 'Enable on-chain data fetching',
+  controlApiKey: 'API Key for external control (e.g., OpenClaw)',
+  debugMode: 'Enable debug logging',
+};
+
+// Setting categories for UI grouping
+export const SETTING_CATEGORIES = {
+  'LN Markets API': ['lnmarketsKey', 'lnmarketsSecret', 'lnmarketsPassphrase', 'lnmarketsNetwork'],
+  'Swarm Control': ['autoStartSwarm', 'autoExecuteTrades'],
+  'Execution': ['minTradeConfidence', 'maxOpenPositions', 'tradeCooldownMinutes'],
+  'Risk Management': ['maxPositionSizePercent', 'maxExposurePercent', 'maxLeverage', 'defaultStopLossPercent', 'defaultTakeProfitPercent', 'maxDailyLossPercent'],
+  'Signal Sources': ['useMarketAnalyst', 'useTradingView', 'useResearcher', 'requireMultipleSources'],
+  'TradingView': ['tradingViewEnabled', 'tradingViewApiUrl', 'tradingViewSymbol', 'tradingViewExchange', 'tradingViewTimeframes', 'tradingViewRequireStrong'],
+  'Notifications': ['enableTelegramNotifications', 'telegramBotToken', 'telegramChatId'],
+  'Advanced': ['enableOnChainMetrics', 'controlApiKey', 'debugMode'],
+};
+
+// ============ SETTINGS SERVICE ============
+
+// In-memory cache
+let settingsCache: AppSettings | null = null;
 let lastFetchTime = 0;
 const CACHE_TTL = 5000; // 5 seconds
 
 export class SettingsService {
   private static instance: SettingsService;
-  
+
   static getInstance(): SettingsService {
     if (!SettingsService.instance) {
       SettingsService.instance = new SettingsService();
@@ -101,8 +215,7 @@ export class SettingsService {
   /**
    * Get all settings (with caching)
    */
-  async getSettings(): Promise<TradingSettings> {
-    // Return cached if fresh
+  async getSettings(): Promise<AppSettings> {
     if (settingsCache && Date.now() - lastFetchTime < CACHE_TTL) {
       return settingsCache;
     }
@@ -110,17 +223,16 @@ export class SettingsService {
     try {
       const db = getDatabase();
       const rows = await db.select().from(settings);
-      
-      // Build settings object from rows
+
       const result = { ...DEFAULT_SETTINGS };
-      
+
       for (const row of rows) {
-        const key = row.key as keyof TradingSettings;
+        const key = row.key as keyof AppSettings;
         if (key in result) {
           (result as any)[key] = row.value;
         }
       }
-      
+
       settingsCache = result;
       lastFetchTime = Date.now();
       return result;
@@ -131,9 +243,26 @@ export class SettingsService {
   }
 
   /**
+   * Get settings with sensitive values masked
+   */
+  async getSettingsMasked(): Promise<AppSettings> {
+    const s = await this.getSettings();
+    const masked = { ...s };
+
+    for (const key of SENSITIVE_KEYS) {
+      const k = key as keyof AppSettings;
+      if (masked[k] && typeof masked[k] === 'string' && (masked[k] as string).length > 0) {
+        (masked as any)[k] = '••••••••';
+      }
+    }
+
+    return masked;
+  }
+
+  /**
    * Get a single setting
    */
-  async getSetting<K extends keyof TradingSettings>(key: K): Promise<TradingSettings[K]> {
+  async getSetting<K extends keyof AppSettings>(key: K): Promise<AppSettings[K]> {
     const all = await this.getSettings();
     return all[key];
   }
@@ -141,14 +270,15 @@ export class SettingsService {
   /**
    * Update a single setting
    */
-  async setSetting<K extends keyof TradingSettings>(key: K, value: TradingSettings[K]): Promise<void> {
+  async setSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): Promise<void> {
     try {
       const db = getDatabase();
-      
+
       await db.insert(settings)
         .values({
           key,
           value: value as any,
+          description: SETTING_DESCRIPTIONS[key] || '',
           updatedAt: new Date(),
         })
         .onConflictDoUpdate({
@@ -158,8 +288,7 @@ export class SettingsService {
             updatedAt: new Date(),
           },
         });
-      
-      // Invalidate cache
+
       settingsCache = null;
     } catch (error) {
       console.error(`Failed to save setting ${key}:`, error);
@@ -170,16 +299,20 @@ export class SettingsService {
   /**
    * Update multiple settings at once
    */
-  async updateSettings(updates: Partial<TradingSettings>): Promise<void> {
+  async updateSettings(updates: Partial<AppSettings>): Promise<void> {
     try {
       const db = getDatabase();
-      
+
       for (const [key, value] of Object.entries(updates)) {
         if (value !== undefined) {
+          // Skip masked values
+          if (value === '••••••••') continue;
+
           await db.insert(settings)
             .values({
               key,
               value: value as any,
+              description: SETTING_DESCRIPTIONS[key] || '',
               updatedAt: new Date(),
             })
             .onConflictDoUpdate({
@@ -191,8 +324,7 @@ export class SettingsService {
             });
         }
       }
-      
-      // Invalidate cache
+
       settingsCache = null;
     } catch (error) {
       console.error('Failed to save settings:', error);
@@ -206,18 +338,18 @@ export class SettingsService {
   async initializeDefaults(): Promise<void> {
     try {
       const db = getDatabase();
-      
+
       for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
         await db.insert(settings)
           .values({
             key,
             value: value as any,
-            description: this.getSettingDescription(key),
+            description: SETTING_DESCRIPTIONS[key] || '',
             updatedAt: new Date(),
           })
           .onConflictDoNothing();
       }
-      
+
       console.log('Settings initialized with defaults');
     } catch (error) {
       console.error('Failed to initialize settings:', error);
@@ -232,43 +364,31 @@ export class SettingsService {
   }
 
   /**
-   * Get setting description for UI
+   * Get setting description
    */
-  private getSettingDescription(key: string): string {
-    const descriptions: Record<string, string> = {
-      autoStartSwarm: 'Auto-start trading agents when server starts',
-      autoExecuteTrades: '⚠️ Enable automatic trade execution',
-      minTradeConfidence: 'Minimum confidence score to execute trades (0-100)',
-      maxOpenPositions: 'Maximum number of concurrent positions',
-      tradeCooldownMinutes: 'Minimum time between trades in minutes',
-      maxPositionSizePercent: 'Maximum % of balance per position',
-      maxExposurePercent: 'Maximum % of balance in all positions',
-      maxLeverage: 'Maximum leverage allowed',
-      defaultStopLossPercent: 'Default stop loss percentage',
-      defaultTakeProfitPercent: 'Default take profit percentage',
-      maxDailyLossPercent: 'Stop trading after this daily loss %',
-      useMarketAnalyst: 'Use built-in technical analysis',
-      useTradingView: 'Use TradingView external signals',
-      useResearcher: 'Use news sentiment analysis',
-      requireMultipleSources: 'Require multiple sources to agree',
-      tradingViewEnabled: 'Enable TradingView integration',
-      tradingViewApiUrl: 'TradingView TA API URL',
-      tradingViewSymbol: 'Trading symbol (e.g., BTCUSD)',
-      tradingViewExchange: 'Exchange for TradingView (e.g., COINBASE)',
-      tradingViewTimeframes: 'Timeframes to analyze',
-      tradingViewRequireStrong: 'Only trade on STRONG signals',
-      enableOnChainMetrics: 'Enable on-chain data fetching',
-      enableTelegramNotifications: 'Send notifications to Telegram',
-      telegramChatId: 'Telegram chat ID for notifications',
-    };
-    return descriptions[key] || '';
+  getDescription(key: string): string {
+    return SETTING_DESCRIPTIONS[key] || '';
+  }
+
+  /**
+   * Check if a setting is sensitive
+   */
+  isSensitive(key: string): boolean {
+    return SENSITIVE_KEYS.has(key);
   }
 
   /**
    * Get defaults (for reference)
    */
-  getDefaults(): TradingSettings {
+  getDefaults(): AppSettings {
     return { ...DEFAULT_SETTINGS };
+  }
+
+  /**
+   * Get categories for UI
+   */
+  getCategories(): typeof SETTING_CATEGORIES {
+    return SETTING_CATEGORIES;
   }
 
   /**
@@ -278,26 +398,39 @@ export class SettingsService {
     settingsCache = null;
     lastFetchTime = 0;
   }
+
+  /**
+   * Check if LN Markets is configured
+   */
+  async isLNMarketsConfigured(): Promise<boolean> {
+    const s = await this.getSettings();
+    return !!(s.lnmarketsKey && s.lnmarketsSecret && s.lnmarketsPassphrase);
+  }
+
+  /**
+   * Get LN Markets config (for service initialization)
+   */
+  async getLNMarketsConfig(): Promise<{
+    key: string;
+    secret: string;
+    passphrase: string;
+    network: 'mainnet' | 'testnet';
+  } | null> {
+    const s = await this.getSettings();
+    if (!s.lnmarketsKey || !s.lnmarketsSecret || !s.lnmarketsPassphrase) {
+      return null;
+    }
+    return {
+      key: s.lnmarketsKey,
+      secret: s.lnmarketsSecret,
+      passphrase: s.lnmarketsPassphrase,
+      network: s.lnmarketsNetwork,
+    };
+  }
 }
 
 // Singleton export
 export const settingsService = SettingsService.getInstance();
 
-// Helper to get settings without DB (fallback for bootstrap)
-export function getSettingsFromEnv(): Partial<TradingSettings> {
-  return {
-    autoStartSwarm: process.env.AUTO_START_SWARM === 'true',
-    autoExecuteTrades: process.env.AUTO_EXECUTE_TRADES === 'true',
-    minTradeConfidence: parseInt(process.env.MIN_TRADE_CONFIDENCE || '70', 10),
-    maxOpenPositions: parseInt(process.env.MAX_OPEN_POSITIONS || '3', 10),
-    maxPositionSizePercent: parseInt(process.env.MAX_POSITION_SIZE_PERCENT || '10', 10),
-    maxExposurePercent: parseInt(process.env.MAX_EXPOSURE_PERCENT || '50', 10),
-    maxLeverage: parseInt(process.env.MAX_LEVERAGE || '25', 10),
-    defaultStopLossPercent: parseInt(process.env.DEFAULT_STOP_LOSS_PERCENT || '5', 10),
-    maxDailyLossPercent: parseInt(process.env.MAX_DAILY_LOSS_PERCENT || '10', 10),
-    enableOnChainMetrics: process.env.ENABLE_ONCHAIN_METRICS === 'true',
-    tradingViewApiUrl: process.env.TRADINGVIEW_SIGNAL_URL || '',
-    tradingViewSymbol: process.env.TRADINGVIEW_SIGNAL_SYMBOL || 'BTCUSD',
-    tradingViewExchange: process.env.TRADINGVIEW_SIGNAL_EXCHANGE || 'COINBASE',
-  };
-}
+// Legacy type alias for compatibility
+export type TradingSettings = AppSettings;
