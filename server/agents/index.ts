@@ -9,3 +9,7 @@ export { ExecutionAgent, type TradeSignal, type ExecutedTrade, type ExecutionCon
 export { ResearcherAgent, type NewsItem, type MarketSentiment, type ResearchReport, type ResearcherConfig } from './researcher-agent';
 export { TradingViewAgent, type TVSignal, type TVAnalysis, type TradingViewConfig } from './tradingview-agent';
 export { SwarmCoordinator, getSwarmCoordinator, createSwarmCoordinator, type SwarmConfig, type SwarmStatus } from './swarm-coordinator';
+
+// Inter-agent communication
+export { MessageBus, getMessageBus, type AgentMessage, type TradeProposal, type AgentVote, type ConsensusResult } from './message-bus';
+export { SwarmChat, getSwarmChat, type ChatMessage, type ChatSession } from './swarm-chat';

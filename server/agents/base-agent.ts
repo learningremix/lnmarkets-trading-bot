@@ -4,6 +4,7 @@
 
 import { EventEmitter } from 'events';
 import { saveAgentState, loadAgentState, type AgentStateData } from '../services/state';
+import { getMessageBus, type MessageBus, type AgentMessage } from './message-bus';
 
 export type AgentStatus = 'idle' | 'analyzing' | 'executing' | 'error' | 'disabled';
 
@@ -44,6 +45,7 @@ export abstract class BaseAgent extends EventEmitter {
   };
   protected intervalHandle: NodeJS.Timeout | null = null;
   protected maxLogSize = 1000;
+  protected messageBus: MessageBus;
 
   constructor(config: Partial<AgentConfig> & { id: string; name: string }) {
     super();
@@ -54,6 +56,156 @@ export abstract class BaseAgent extends EventEmitter {
       timeoutMs: 30000,
       ...config,
     };
+    this.messageBus = getMessageBus();
+    this.setupMessageHandlers();
+  }
+
+  // ============ MESSAGE BUS INTEGRATION ============
+
+  private setupMessageHandlers(): void {
+    // Listen for messages directed to this agent
+    this.messageBus.on(`message:${this.config.id}`, (msg: AgentMessage) => {
+      this.handleMessage(msg).catch(err => {
+        this.log('error', 'Failed to handle message', err);
+      });
+    });
+
+    // Listen for vote requests
+    this.messageBus.on('type:vote', (msg: AgentMessage) => {
+      if (msg.content?.action === 'request_vote') {
+        this.handleVoteRequest(msg).catch(err => {
+          this.log('error', 'Failed to handle vote request', err);
+        });
+      }
+    });
+
+    // Listen for chat messages
+    this.messageBus.on('type:chat', (msg: AgentMessage) => {
+      const targets = msg.to ? (Array.isArray(msg.to) ? msg.to : [msg.to]) : [];
+      if (targets.includes(this.config.id) || targets.length === 0) {
+        this.handleChatMessage(msg).catch(err => {
+          this.log('error', 'Failed to handle chat message', err);
+        });
+      }
+    });
+
+    // Listen for questions
+    this.messageBus.on('type:question', (msg: AgentMessage) => {
+      this.handleQuestion(msg).catch(err => {
+        this.log('error', 'Failed to handle question', err);
+      });
+    });
+  }
+
+  /**
+   * Handle incoming messages (override in subclasses)
+   */
+  protected async handleMessage(message: AgentMessage): Promise<void> {
+    this.log('debug', `Received message from ${message.from}`, message.content);
+  }
+
+  /**
+   * Handle vote requests for trade proposals
+   */
+  protected async handleVoteRequest(message: AgentMessage): Promise<void> {
+    const proposal = message.content?.proposal;
+    if (!proposal) return;
+
+    // Get agent's opinion on the trade
+    const vote = await this.evaluateTradeProposal(proposal);
+    
+    if (vote) {
+      this.messageBus.vote(proposal.id, {
+        agentId: this.config.id,
+        vote: vote.decision,
+        confidence: vote.confidence,
+        reason: vote.reason,
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  /**
+   * Handle chat messages from humans
+   */
+  protected async handleChatMessage(message: AgentMessage): Promise<void> {
+    const query = typeof message.content === 'string' 
+      ? message.content 
+      : message.content?.text || JSON.stringify(message.content);
+    
+    const response = await this.generateChatResponse(query);
+    
+    if (response) {
+      this.messageBus.reply(this.config.id, message, response);
+    }
+  }
+
+  /**
+   * Handle questions (especially trade opinions)
+   */
+  protected async handleQuestion(message: AgentMessage): Promise<void> {
+    if (message.content?.type === 'trade_opinion') {
+      const opinion = await this.getTradeOpinion(
+        message.content.direction,
+        message.content.context
+      );
+      this.messageBus.reply(this.config.id, message, opinion);
+    }
+  }
+
+  /**
+   * Evaluate a trade proposal (override in subclasses)
+   */
+  protected async evaluateTradeProposal(proposal: any): Promise<{
+    decision: 'approve' | 'reject' | 'abstain';
+    confidence: number;
+    reason: string;
+  } | null> {
+    // Default: abstain if not overridden
+    return {
+      decision: 'abstain',
+      confidence: 50,
+      reason: `${this.config.name} has no opinion on this trade`,
+    };
+  }
+
+  /**
+   * Generate a response to a chat message (override in subclasses)
+   */
+  protected async generateChatResponse(query: string): Promise<string | null> {
+    return `[${this.config.name}] I received your message but don't have a specific response.`;
+  }
+
+  /**
+   * Get opinion on a trade direction (override in subclasses)
+   */
+  protected async getTradeOpinion(
+    direction: 'long' | 'short',
+    context?: string
+  ): Promise<{
+    opinion: 'approve' | 'reject' | 'neutral';
+    confidence: number;
+    reason: string;
+  }> {
+    return {
+      opinion: 'neutral',
+      confidence: 50,
+      reason: `${this.config.name} has no strong opinion`,
+    };
+  }
+
+  /**
+   * Broadcast a message to other agents
+   */
+  protected broadcastToSwarm(type: 'analysis' | 'alert' | 'opinion', content: any): void {
+    this.messageBus.broadcast(this.config.id, type, content);
+  }
+
+  /**
+   * Send a message to a specific agent
+   */
+  protected sendToAgent(targetId: string, content: any): void {
+    this.messageBus.sendTo(this.config.id, targetId, 'opinion', content);
   }
 
   // ============ LIFECYCLE ============

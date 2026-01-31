@@ -380,4 +380,135 @@ export class RiskManagerAgent extends BaseAgent {
     await this.execute();
     return this.lastAssessment;
   }
+
+  // ============ SWARM COMMUNICATION ============
+
+  /**
+   * Evaluate a trade proposal from risk perspective
+   */
+  protected async evaluateTradeProposal(proposal: any): Promise<{
+    decision: 'approve' | 'reject' | 'abstain';
+    confidence: number;
+    reason: string;
+  } | null> {
+    if (!this.lastAssessment) {
+      await this.forceAssessment();
+    }
+
+    if (!this.lastAssessment) {
+      return {
+        decision: 'reject',
+        confidence: 100,
+        reason: 'Cannot assess risk - no data available',
+      };
+    }
+
+    const assessment = this.lastAssessment;
+
+    // Check if we can open new positions
+    if (!assessment.canOpenNewPosition) {
+      return {
+        decision: 'reject',
+        confidence: 100,
+        reason: `Risk limits exceeded: exposure ${assessment.exposurePercent.toFixed(1)}%, daily P&L ${assessment.dailyPLPercent.toFixed(1)}%`,
+      };
+    }
+
+    // Check available margin
+    if (assessment.availableMargin < 1000) {
+      return {
+        decision: 'reject',
+        confidence: 90,
+        reason: `Insufficient available margin: ${assessment.availableMargin} sats`,
+      };
+    }
+
+    // Check daily loss
+    if (assessment.dailyPLPercent < -this.riskParams.maxDailyLossPercent / 2) {
+      return {
+        decision: 'reject',
+        confidence: 85,
+        reason: `Already at ${assessment.dailyPLPercent.toFixed(1)}% daily loss - reducing risk`,
+      };
+    }
+
+    // Approve with confidence based on risk headroom
+    const headroomPercent = (this.riskParams.maxTotalExposurePercent - assessment.exposurePercent);
+    const confidence = Math.min(90, 50 + headroomPercent);
+
+    return {
+      decision: 'approve',
+      confidence,
+      reason: `Risk checks passed. Available margin: ${assessment.availableMargin} sats, exposure: ${assessment.exposurePercent.toFixed(1)}%`,
+    };
+  }
+
+  /**
+   * Generate chat response about risk
+   */
+  protected async generateChatResponse(query: string): Promise<string | null> {
+    if (!this.lastAssessment) {
+      await this.forceAssessment();
+    }
+
+    if (!this.lastAssessment) {
+      return `⚠️ Risk assessment not available - LN Markets may not be connected.`;
+    }
+
+    const a = this.lastAssessment;
+    const parts: string[] = [`**🛡️ Risk Manager Report**\n`];
+
+    parts.push(`**Portfolio Status:**`);
+    parts.push(`• Balance: ${a.balance.toLocaleString()} sats`);
+    parts.push(`• Exposure: ${a.totalExposure.toLocaleString()} sats (${a.exposurePercent.toFixed(1)}%)`);
+    parts.push(`• Available Margin: ${a.availableMargin.toLocaleString()} sats`);
+    parts.push(`• Daily P&L: ${a.dailyPL >= 0 ? '+' : ''}${a.dailyPL.toLocaleString()} sats (${a.dailyPLPercent.toFixed(2)}%)\n`);
+
+    parts.push(`**Open Positions (${a.positions.length}):**`);
+    for (const p of a.positions) {
+      const emoji = p.riskLevel === 'critical' ? '🔴' : p.riskLevel === 'high' ? '🟠' : p.riskLevel === 'medium' ? '🟡' : '🟢';
+      parts.push(`${emoji} ${p.side.toUpperCase()}: ${p.margin.toLocaleString()} sats, P&L: ${p.pl >= 0 ? '+' : ''}${p.pl.toLocaleString()} (${p.plPercent.toFixed(1)}%)`);
+    }
+
+    if (a.alerts.length > 0) {
+      parts.push(`\n**⚠️ Alerts:**`);
+      for (const alert of a.alerts) {
+        const emoji = alert.level === 'critical' ? '🚨' : alert.level === 'warning' ? '⚠️' : 'ℹ️';
+        parts.push(`${emoji} ${alert.message}`);
+      }
+    }
+
+    parts.push(`\n**Can Open New Position:** ${a.canOpenNewPosition ? '✅ Yes' : '❌ No'}`);
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Get trade opinion from risk perspective
+   */
+  protected async getTradeOpinion(
+    direction: 'long' | 'short',
+    context?: string
+  ): Promise<{
+    opinion: 'approve' | 'reject' | 'neutral';
+    confidence: number;
+    reason: string;
+  }> {
+    const evaluation = await this.evaluateTradeProposal({ direction });
+    
+    if (!evaluation) {
+      return {
+        opinion: 'neutral',
+        confidence: 50,
+        reason: 'Unable to evaluate',
+      };
+    }
+
+    return {
+      opinion: evaluation.decision === 'approve' ? 'approve' : 
+               evaluation.decision === 'reject' ? 'reject' : 'neutral',
+      confidence: evaluation.confidence,
+      reason: evaluation.reason,
+    };
+  }
 }

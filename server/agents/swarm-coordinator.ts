@@ -12,6 +12,8 @@ import { RiskManagerAgent } from './risk-manager';
 import { ExecutionAgent, type TradeSignal } from './execution-agent';
 import { ResearcherAgent } from './researcher-agent';
 import { TradingViewAgent, type TVSignal } from './tradingview-agent';
+import { getMessageBus, type MessageBus, type ConsensusResult } from './message-bus';
+import { getSwarmChat, type SwarmChat } from './swarm-chat';
 
 export interface SwarmConfig {
   lnMarkets?: LNMarketsConfig;
@@ -91,9 +93,14 @@ export class SwarmCoordinator extends EventEmitter {
   private executionAgent: ExecutionAgent | null = null;
   private researcher: ResearcherAgent | null = null;
   private tradingView: TradingViewAgent | null = null;
+  private messageBus: MessageBus;
+  private swarmChat: SwarmChat;
 
   constructor(config: Partial<SwarmConfig> = {}) {
     super();
+    
+    this.messageBus = getMessageBus();
+    this.swarmChat = getSwarmChat();
 
     this.config = {
       autoStart: false,
@@ -193,6 +200,82 @@ export class SwarmCoordinator extends EventEmitter {
 
     // Wire up inter-agent communication
     this.setupInterAgentCommunication();
+    
+    // Setup consensus-based trading
+    this.setupConsensusTrading();
+  }
+
+  private setupConsensusTrading(): void {
+    // When market analyst has a strong recommendation, propose a trade
+    if (this.marketAnalyst) {
+      this.marketAnalyst.on('recommendation', (rec) => {
+        if ((rec.action === 'long' || rec.action === 'short') && rec.confidence >= 70) {
+          // Create a trade proposal for voting
+          this.messageBus.createProposal(
+            'market-analyst',
+            rec.action,
+            rec.confidence,
+            `Multi-timeframe analysis suggests ${rec.action}`
+          );
+        }
+      });
+    }
+
+    // When TradingView has a strong signal, propose a trade
+    if (this.tradingView && this.config.signalSources?.useTradingView) {
+      this.tradingView.on('combined_signal', (tvSignal: TVSignal) => {
+        if (tvSignal === 'STRONG_BUY' || tvSignal === 'STRONG_SELL') {
+          const direction = tvSignal === 'STRONG_BUY' ? 'long' : 'short';
+          this.messageBus.createProposal(
+            'tradingview',
+            direction,
+            85,
+            `TradingView STRONG signal: ${tvSignal}`
+          );
+        }
+      });
+    }
+
+    // Handle consensus decisions
+    this.messageBus.on('consensus:reached', async (result: ConsensusResult) => {
+      this.emit('consensus_reached', result);
+      
+      if (result.approved && this.executionAgent?.isAutoExecuteEnabled()) {
+        const proposal = this.messageBus.getProposal(result.proposalId);
+        if (proposal) {
+          this.log('info', `Consensus reached: executing ${proposal.direction} trade`);
+          
+          const signal: TradeSignal = {
+            id: `consensus-${result.proposalId}`,
+            timestamp: new Date(),
+            direction: proposal.direction,
+            confidence: result.averageConfidence,
+            reason: `Consensus: ${result.approveVotes}/${result.totalVotes} approved. ${result.reasons.slice(0, 2).join('; ')}`,
+            source: 'consensus',
+            price: 0,
+          };
+          
+          this.executionAgent.addSignal(signal);
+        }
+      }
+    });
+
+    // Log all swarm messages for debugging
+    this.messageBus.on('message', (msg) => {
+      this.emit('swarm_message', msg);
+    });
+  }
+
+  private log(level: 'info' | 'warn' | 'error', message: string, data?: any): void {
+    const log = { level, message, data, timestamp: new Date() };
+    this.emit('log', log);
+    if (level === 'error') {
+      console.error(`[SwarmCoordinator] ${message}`, data || '');
+    } else if (level === 'warn') {
+      console.warn(`[SwarmCoordinator] ${message}`, data || '');
+    } else {
+      console.log(`[SwarmCoordinator] ${message}`, data || '');
+    }
   }
 
   private setupAgentListeners(agent: BaseAgent): void {

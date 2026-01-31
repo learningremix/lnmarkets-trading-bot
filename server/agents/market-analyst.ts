@@ -282,4 +282,103 @@ export class MarketAnalystAgent extends BaseAgent {
     await this.execute();
     return this.lastAnalysis;
   }
+
+  // ============ SWARM COMMUNICATION ============
+
+  /**
+   * Evaluate a trade proposal based on current analysis
+   */
+  protected async evaluateTradeProposal(proposal: any): Promise<{
+    decision: 'approve' | 'reject' | 'abstain';
+    confidence: number;
+    reason: string;
+  } | null> {
+    const combined = this.generateCombinedRecommendation();
+    
+    if (combined.action === 'hold') {
+      return {
+        decision: 'abstain',
+        confidence: 50,
+        reason: 'Market conditions do not favor a clear direction',
+      };
+    }
+
+    const agrees = combined.action === proposal.direction;
+    
+    return {
+      decision: agrees ? 'approve' : 'reject',
+      confidence: combined.confidence,
+      reason: agrees 
+        ? `Technical analysis supports ${proposal.direction} with ${combined.confidence.toFixed(0)}% confidence`
+        : `Technical analysis suggests ${combined.action}, not ${proposal.direction}`,
+    };
+  }
+
+  /**
+   * Generate chat response about market analysis
+   */
+  protected async generateChatResponse(query: string): Promise<string | null> {
+    const lower = query.toLowerCase();
+    
+    // Ensure we have recent analysis
+    if (this.lastAnalysis.size === 0) {
+      try {
+        await this.execute();
+      } catch (e) {
+        return `I don't have current analysis available. Error: ${e}`;
+      }
+    }
+
+    // Build response based on query
+    const parts: string[] = [`**📊 Market Analyst Report**\n`];
+    
+    for (const [interval, analysis] of this.lastAnalysis) {
+      const rec = analysis.recommendation;
+      const trend = analysis.technicalSummary.trend;
+      const indicators = analysis.technicalSummary.indicators;
+      
+      parts.push(`**${interval.toUpperCase()} Timeframe:**`);
+      parts.push(`• Signal: ${analysis.technicalSummary.signal} (score: ${analysis.technicalSummary.score})`);
+      parts.push(`• Trend: ${trend.trend} (strength: ${trend.strength.toFixed(1)})`);
+      parts.push(`• RSI: ${indicators.rsi.toFixed(1)} | MACD: ${indicators.macd.histogram > 0 ? '📈' : '📉'}`);
+      parts.push(`• Recommendation: **${rec.action.toUpperCase()}** (${rec.confidence.toFixed(0)}% confidence)`);
+      parts.push(`• Reason: ${rec.reason}\n`);
+    }
+
+    const combined = this.generateCombinedRecommendation();
+    parts.push(`**Overall Recommendation:** ${combined.action.toUpperCase()} @ ${combined.confidence.toFixed(0)}% confidence`);
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Get trade opinion for consensus
+   */
+  protected async getTradeOpinion(
+    direction: 'long' | 'short',
+    context?: string
+  ): Promise<{
+    opinion: 'approve' | 'reject' | 'neutral';
+    confidence: number;
+    reason: string;
+  }> {
+    const combined = this.generateCombinedRecommendation();
+
+    if (combined.action === 'hold' || combined.confidence < 50) {
+      return {
+        opinion: 'neutral',
+        confidence: combined.confidence,
+        reason: 'Technical signals are mixed or weak',
+      };
+    }
+
+    const agrees = combined.action === direction;
+    return {
+      opinion: agrees ? 'approve' : 'reject',
+      confidence: combined.confidence,
+      reason: agrees
+        ? `TA supports ${direction}: ${JSON.stringify(combined.timeframes)}`
+        : `TA suggests ${combined.action} instead of ${direction}`,
+    };
+  }
 }
