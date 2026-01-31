@@ -5,6 +5,7 @@
 
 import { EventEmitter } from 'events';
 import { LNMarketsService, createLNMarketsService, type LNMarketsConfig } from '../services/lnmarkets';
+import { saveSwarmState, loadSwarmState, type SwarmStateData } from '../services/state';
 import { BaseAgent } from './base-agent';
 import { MarketAnalystAgent } from './market-analyst';
 import { RiskManagerAgent } from './risk-manager';
@@ -331,6 +332,9 @@ export class SwarmCoordinator extends EventEmitter {
     }
 
     this.emit('started');
+
+    // Persist state
+    this.saveState().catch(() => {});
   }
 
   stop(): void {
@@ -347,6 +351,9 @@ export class SwarmCoordinator extends EventEmitter {
 
     this.running = false;
     this.emit('stopped');
+
+    // Persist state
+    this.saveState().catch(() => {});
   }
 
   // ============ STATUS & METRICS ============
@@ -476,11 +483,66 @@ export class SwarmCoordinator extends EventEmitter {
   setAutoExecute(enabled: boolean): void {
     if (this.executionAgent) {
       this.executionAgent.setAutoExecute(enabled);
+
+      // Persist state
+      this.saveState().catch(() => {});
     }
   }
 
   isAutoExecuteEnabled(): boolean {
     return this.executionAgent?.isAutoExecuteEnabled() || false;
+  }
+
+  // ============ STATE PERSISTENCE ============
+
+  /**
+   * Save swarm state to database
+   */
+  async saveState(): Promise<void> {
+    try {
+      await saveSwarmState({
+        running: this.running,
+        autoExecute: this.executionAgent?.isAutoExecuteEnabled() || false,
+        config: this.config,
+        lastStartedAt: this.running ? new Date() : undefined,
+        lastStoppedAt: !this.running ? new Date() : undefined,
+      });
+    } catch (error) {
+      console.error('Failed to save swarm state:', error);
+    }
+  }
+
+  /**
+   * Load swarm state from database
+   */
+  async loadState(): Promise<SwarmStateData | null> {
+    try {
+      const state = await loadSwarmState();
+      
+      if (state) {
+        // Restore config
+        if (state.config) {
+          this.config = { ...this.config, ...state.config };
+        }
+
+        // Restore auto-execute setting
+        if (this.executionAgent && state.autoExecute !== undefined) {
+          this.executionAgent.setAutoExecute(state.autoExecute);
+        }
+
+        console.log('Swarm state restored from database');
+      }
+
+      // Load state for all agents
+      for (const agent of this.agents.values()) {
+        await agent.loadState();
+      }
+
+      return state;
+    } catch (error) {
+      console.error('Failed to load swarm state:', error);
+      return null;
+    }
   }
 }
 

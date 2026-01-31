@@ -154,6 +154,76 @@ export const riskAssessments = pgTable('risk_assessments', {
   createdAtIdx: index('risk_assessments_created_at_idx').on(table.createdAt),
 }));
 
+// ============ SWARM STATE ============
+
+export const swarmState = pgTable('swarm_state', {
+  id: serial('id').primaryKey(),
+  key: varchar('key', { length: 50 }).notNull().default('primary'),
+  running: boolean('running').default(false),
+  autoExecute: boolean('auto_execute').default(false),
+  config: json('config'), // SwarmConfig
+  lastStartedAt: timestamp('last_started_at'),
+  lastStoppedAt: timestamp('last_stopped_at'),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  keyIdx: uniqueIndex('swarm_state_key_idx').on(table.key),
+}));
+
+// ============ AGENT STATE ============
+
+export const agentState = pgTable('agent_state', {
+  id: serial('id').primaryKey(),
+  agentId: varchar('agent_id', { length: 50 }).notNull(),
+  enabled: boolean('enabled').default(true),
+  status: varchar('status', { length: 20 }).default('idle'),
+  config: json('config'), // AgentConfig
+  metrics: json('metrics'), // AgentMetrics
+  state: json('state'), // Agent-specific state (e.g., pendingSignals)
+  lastRunAt: timestamp('last_run_at'),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  agentIdIdx: uniqueIndex('agent_state_agent_id_idx').on(table.agentId),
+}));
+
+// ============ PENDING SIGNALS ============
+
+export const pendingSignals = pgTable('pending_signals', {
+  id: serial('id').primaryKey(),
+  signalId: varchar('signal_id', { length: 100 }).notNull(),
+  direction: varchar('direction', { length: 10 }).notNull(),
+  price: real('price').notNull(),
+  confidence: integer('confidence').notNull(),
+  source: varchar('source', { length: 50 }).notNull(),
+  reason: text('reason'),
+  metadata: json('metadata'),
+  expiresAt: timestamp('expires_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  signalIdIdx: uniqueIndex('pending_signals_signal_id_idx').on(table.signalId),
+  expiresAtIdx: index('pending_signals_expires_at_idx').on(table.expiresAt),
+}));
+
+// ============ EXECUTED TRADES (in-memory tracking) ============
+
+export const executedTradesState = pgTable('executed_trades_state', {
+  id: serial('id').primaryKey(),
+  positionId: varchar('position_id', { length: 100 }).notNull(),
+  signalId: varchar('signal_id', { length: 100 }),
+  direction: varchar('direction', { length: 10 }).notNull(),
+  entryPrice: real('entry_price').notNull(),
+  margin: integer('margin').notNull(),
+  leverage: integer('leverage').notNull(),
+  stopLoss: real('stop_loss'),
+  takeProfit: real('take_profit'),
+  status: varchar('status', { length: 20 }).notNull().default('open'),
+  pnl: integer('pnl'),
+  executedAt: timestamp('executed_at').defaultNow().notNull(),
+  closedAt: timestamp('closed_at'),
+}, (table) => ({
+  positionIdIdx: uniqueIndex('executed_trades_state_position_id_idx').on(table.positionId),
+  statusIdx: index('executed_trades_state_status_idx').on(table.status),
+}));
+
 // ============ TYPE EXPORTS ============
 
 export type Trade = typeof trades.$inferSelect;
@@ -176,3 +246,15 @@ export type NewAnalysisSnapshot = typeof analysisSnapshots.$inferInsert;
 
 export type RiskAssessment = typeof riskAssessments.$inferSelect;
 export type NewRiskAssessment = typeof riskAssessments.$inferInsert;
+
+export type SwarmState = typeof swarmState.$inferSelect;
+export type NewSwarmState = typeof swarmState.$inferInsert;
+
+export type AgentState = typeof agentState.$inferSelect;
+export type NewAgentState = typeof agentState.$inferInsert;
+
+export type PendingSignal = typeof pendingSignals.$inferSelect;
+export type NewPendingSignal = typeof pendingSignals.$inferInsert;
+
+export type ExecutedTradeState = typeof executedTradesState.$inferSelect;
+export type NewExecutedTradeState = typeof executedTradesState.$inferInsert;

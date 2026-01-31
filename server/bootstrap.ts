@@ -80,6 +80,16 @@ export async function bootstrapTradingSwarm(): Promise<void> {
     await swarm.initialize();
   }
 
+  // Load saved state from database
+  const savedState = await swarm.loadState();
+  if (savedState) {
+    console.log('📂 Restored state from database');
+    if (savedState.running) {
+      console.log('   Previously running - auto-starting swarm...');
+      swarm.start();
+    }
+  }
+
   initialized = true;
 
   console.log('');
@@ -89,7 +99,7 @@ export async function bootstrapTradingSwarm(): Promise<void> {
   console.log('🔌 Control API: http://localhost:3000/api/control');
   console.log('');
   console.log('💡 Configure trading settings via the dashboard');
-  console.log('   All settings are stored in the database');
+  console.log('   All settings and state are stored in the database');
   console.log('');
 }
 

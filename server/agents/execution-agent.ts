@@ -7,6 +7,15 @@ import { BaseAgent, type AgentConfig } from './base-agent';
 import { LNMarketsService, type Position, type TradeParams } from '../services/lnmarkets';
 import { RiskManagerAgent, type PositionSizing } from './risk-manager';
 import { MarketAnalystAgent, type MarketAnalysis } from './market-analyst';
+import {
+  savePendingSignal,
+  deletePendingSignal,
+  loadPendingSignals,
+  clearPendingSignals,
+  saveExecutedTrade,
+  loadExecutedTrades,
+  updateExecutedTradeStatus,
+} from '../services/state';
 
 export interface TradeSignal {
   id: string;
@@ -131,6 +140,9 @@ export class ExecutionAgent extends BaseAgent {
       source: signal.source,
     });
     this.emit('signal_added', signal);
+
+    // Persist to database
+    this.persistPendingSignal(signal).catch(() => {});
   }
 
   private async processPendingSignals(): Promise<void> {
@@ -235,6 +247,10 @@ export class ExecutionAgent extends BaseAgent {
       // Remove the signal from pending
       this.pendingSignals = this.pendingSignals.filter((s) => s.id !== signal.id);
 
+      // Persist to database
+      this.persistExecutedTrade(executedTrade).catch(() => {});
+      this.removePendingSignal(signal.id).catch(() => {});
+
       this.log('info', `Trade executed successfully`, {
         positionId: position.id,
         direction: signal.direction,
@@ -268,6 +284,9 @@ export class ExecutionAgent extends BaseAgent {
         trade.status = 'closed';
         trade.closedAt = new Date();
         this.emit('position_closed', { positionId, reason, trade });
+
+        // Persist status change
+        updateExecutedTradeStatus(positionId, 'closed', trade.pnl).catch(() => {});
       }
 
       this.log('info', `Position ${positionId} closed`);
@@ -334,6 +353,9 @@ export class ExecutionAgent extends BaseAgent {
             reason: 'SL/TP triggered',
             trade,
           });
+
+          // Persist status change
+          updateExecutedTradeStatus(positionId, 'closed', trade.pnl).catch(() => {});
         }
       }
     }
@@ -356,6 +378,9 @@ export class ExecutionAgent extends BaseAgent {
   clearPendingSignals(): void {
     this.pendingSignals = [];
     this.log('info', 'Pending signals cleared');
+
+    // Clear from database
+    clearPendingSignals().catch(() => {});
   }
 
   setAutoExecute(enabled: boolean): void {
@@ -375,5 +400,144 @@ export class ExecutionAgent extends BaseAgent {
   updateExecutionConfig(updates: Partial<ExecutionConfig>): void {
     this.execConfig = { ...this.execConfig, ...updates };
     this.log('info', 'Execution config updated', updates);
+  }
+
+  // ============ STATE PERSISTENCE ============
+
+  /**
+   * Get agent-specific state for persistence
+   */
+  protected getAgentSpecificState(): any {
+    return {
+      autoExecute: this.execConfig.autoExecute,
+      lastTradeTime: this.lastTradeTime?.toISOString() ?? null,
+      execConfig: this.execConfig,
+    };
+  }
+
+  /**
+   * Restore agent-specific state from persistence
+   */
+  protected restoreAgentSpecificState(state: any): void {
+    if (state.autoExecute !== undefined) {
+      this.execConfig.autoExecute = state.autoExecute;
+    }
+    if (state.lastTradeTime) {
+      this.lastTradeTime = new Date(state.lastTradeTime);
+    }
+    if (state.execConfig) {
+      this.execConfig = { ...this.execConfig, ...state.execConfig };
+    }
+  }
+
+  /**
+   * Load state from database (including signals and trades)
+   */
+  async loadState(): Promise<boolean> {
+    const baseLoaded = await super.loadState();
+
+    try {
+      // Load pending signals
+      const signals = await loadPendingSignals();
+      this.pendingSignals = signals.map((s) => ({
+        id: s.signalId,
+        timestamp: s.createdAt,
+        direction: s.direction,
+        confidence: s.confidence,
+        reason: s.reason || '',
+        source: s.source,
+        price: s.price,
+      }));
+      this.log('info', `Restored ${this.pendingSignals.length} pending signals`);
+
+      // Load executed trades
+      const trades = await loadExecutedTrades();
+      this.executedTrades.clear();
+      for (const trade of trades) {
+        this.executedTrades.set(trade.positionId, {
+          signalId: trade.signalId || '',
+          positionId: trade.positionId,
+          direction: trade.direction,
+          entryPrice: trade.entryPrice,
+          margin: trade.margin,
+          leverage: trade.leverage,
+          stopLoss: trade.stopLoss || 0,
+          takeProfit: trade.takeProfit || 0,
+          executedAt: trade.executedAt,
+          status: trade.status,
+          closedAt: trade.closedAt,
+          pnl: trade.pnl,
+        });
+      }
+      this.log('info', `Restored ${this.executedTrades.size} executed trades`);
+
+      return true;
+    } catch (error) {
+      this.log('error', 'Failed to load execution state', error);
+      return baseLoaded;
+    }
+  }
+
+  /**
+   * Persist state after each tick
+   */
+  protected async persistAfterTick(): Promise<void> {
+    await this.saveState();
+    // Signals and trades are persisted individually when modified
+  }
+
+  /**
+   * Save a pending signal to database
+   */
+  private async persistPendingSignal(signal: TradeSignal): Promise<void> {
+    try {
+      await savePendingSignal({
+        signalId: signal.id,
+        direction: signal.direction,
+        price: signal.price,
+        confidence: signal.confidence,
+        source: signal.source,
+        reason: signal.reason,
+        expiresAt: new Date(signal.timestamp.getTime() + 5 * 60 * 1000), // 5 min expiry
+        createdAt: signal.timestamp,
+      });
+    } catch (error) {
+      this.log('error', 'Failed to persist pending signal', error);
+    }
+  }
+
+  /**
+   * Remove a pending signal from database
+   */
+  private async removePendingSignal(signalId: string): Promise<void> {
+    try {
+      await deletePendingSignal(signalId);
+    } catch (error) {
+      this.log('error', 'Failed to remove pending signal', error);
+    }
+  }
+
+  /**
+   * Save an executed trade to database
+   */
+  private async persistExecutedTrade(trade: ExecutedTrade): Promise<void> {
+    try {
+      await saveExecutedTrade({
+        positionId: trade.positionId,
+        signalId: trade.signalId,
+        direction: trade.direction,
+        entryPrice: trade.entryPrice,
+        margin: trade.margin,
+        leverage: trade.leverage,
+        stopLoss: trade.stopLoss,
+        takeProfit: trade.takeProfit,
+        status: trade.status,
+        pnl: trade.pnl,
+        executedAt: trade.executedAt,
+        closedAt: trade.closedAt,
+      });
+    } catch (error) {
+      this.log('error', 'Failed to persist executed trade', error);
+    }
   }
 }

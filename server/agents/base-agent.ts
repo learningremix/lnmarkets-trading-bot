@@ -3,6 +3,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { saveAgentState, loadAgentState, type AgentStateData } from '../services/state';
 
 export type AgentStatus = 'idle' | 'analyzing' | 'executing' | 'error' | 'disabled';
 
@@ -110,6 +111,9 @@ export abstract class BaseAgent extends EventEmitter {
     this.updateAvgExecutionTime(executionTime);
     this.metrics.lastRunAt = new Date();
     this.status = 'idle';
+
+    // Persist state after successful tick
+    await this.persistAfterTick();
   }
 
   // ============ ABSTRACT METHODS ============
@@ -224,5 +228,82 @@ export abstract class BaseAgent extends EventEmitter {
       config: this.config,
       metrics: this.metrics,
     };
+  }
+
+  // ============ STATE PERSISTENCE ============
+
+  /**
+   * Get agent-specific state for persistence (override in subclasses)
+   */
+  protected getAgentSpecificState(): any {
+    return {};
+  }
+
+  /**
+   * Restore agent-specific state from persistence (override in subclasses)
+   */
+  protected restoreAgentSpecificState(state: any): void {
+    // Override in subclasses
+  }
+
+  /**
+   * Save current state to database
+   */
+  async saveState(): Promise<void> {
+    try {
+      await saveAgentState({
+        agentId: this.config.id,
+        enabled: this.config.enabled,
+        status: this.status,
+        config: this.config,
+        metrics: this.metrics,
+        state: this.getAgentSpecificState(),
+        lastRunAt: this.metrics.lastRunAt,
+      });
+    } catch (error) {
+      this.log('error', 'Failed to save agent state', error);
+    }
+  }
+
+  /**
+   * Load state from database
+   */
+  async loadState(): Promise<boolean> {
+    try {
+      const state = await loadAgentState(this.config.id);
+      
+      if (!state) {
+        this.log('debug', 'No saved state found');
+        return false;
+      }
+
+      // Restore config (merge with defaults)
+      if (state.config) {
+        this.config = { ...this.config, ...state.config };
+      }
+
+      // Restore metrics
+      if (state.metrics) {
+        this.metrics = { ...this.metrics, ...state.metrics };
+      }
+
+      // Restore agent-specific state
+      if (state.state) {
+        this.restoreAgentSpecificState(state.state);
+      }
+
+      this.log('info', 'State restored from database');
+      return true;
+    } catch (error) {
+      this.log('error', 'Failed to load agent state', error);
+      return false;
+    }
+  }
+
+  /**
+   * Persist state after each tick
+   */
+  protected async persistAfterTick(): Promise<void> {
+    await this.saveState();
   }
 }
