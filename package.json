@@ -11,17 +11,27 @@
     "typecheck": "react-router typegen && tsc -b"
   },
   "dependencies": {
+    "@ln-markets/sdk": "^1.2.4",
     "@react-router/express": "7.12.0",
     "@react-router/node": "7.12.0",
+    "bullmq": "^5.67.2",
     "compression": "^1.8.0",
+    "date-fns": "^4.1.0",
     "drizzle-orm": "~0.36.3",
     "express": "^5.1.0",
+    "ioredis": "^5.9.2",
     "isbot": "^5.1.27",
+    "lucide-react": "^0.563.0",
     "morgan": "^1.10.0",
+    "openai": "^6.17.0",
     "postgres": "^3.4.5",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-router": "7.12.0"
+    "react-router": "7.12.0",
+    "recharts": "^3.7.0",
+    "technicalindicators": "^3.1.0",
+    "zod": "^4.3.6",
+    "zustand": "^5.0.10"
   },
   "devDependencies": {
     "@react-router/dev": "7.12.0",

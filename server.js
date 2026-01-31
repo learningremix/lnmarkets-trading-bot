@@ -12,6 +12,24 @@ const app = express();
 app.use(compression());
 app.disable("x-powered-by");
 
+// Bootstrap trading swarm
+async function bootstrapSwarm() {
+  try {
+    if (DEVELOPMENT) {
+      // In development, dynamically import the bootstrap
+      const { bootstrapTradingSwarm } = await import("./server/bootstrap.ts");
+      await bootstrapTradingSwarm();
+    } else {
+      // In production, import from build
+      const { bootstrapTradingSwarm } = await import("./build/server/bootstrap.js");
+      await bootstrapTradingSwarm();
+    }
+  } catch (error) {
+    console.error("Failed to bootstrap trading swarm:", error);
+    console.log("Continuing without trading swarm...");
+  }
+}
+
 if (DEVELOPMENT) {
   console.log("Starting development server");
   const viteDevServer = await import("vite").then((vite) =>
@@ -42,6 +60,11 @@ if (DEVELOPMENT) {
   app.use(await import(BUILD_PATH).then((mod) => mod.app));
 }
 
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+// Start server and bootstrap swarm
+app.listen(PORT, async () => {
+  console.log(`\n⚡ Server is running on http://localhost:${PORT}`);
+  console.log(`📊 Dashboard: http://localhost:${PORT}/dashboard\n`);
+  
+  // Bootstrap trading swarm after server starts
+  await bootstrapSwarm();
 });
