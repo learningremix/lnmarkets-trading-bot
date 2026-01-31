@@ -1,172 +1,172 @@
 /**
- * Dashboard Settings - Configure trading bot options (DB-backed)
+ * Settings Route - Configure the trading bot
  */
 
 import type { Route } from './+types/dashboard.settings';
-import { useState, useEffect } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router';
 import {
   Settings,
+  Save,
+  RefreshCw,
+  ArrowLeft,
+  Zap,
+  Shield,
   Bot,
   TrendingUp,
-  Shield,
-  Zap,
-  Save,
-  ArrowLeft,
-  ToggleLeft,
-  ToggleRight,
-  RefreshCw,
+  Bell,
+  Wrench,
+  Eye,
+  EyeOff,
+  CheckCircle,
   AlertTriangle,
-  RotateCcw,
+  XCircle,
 } from 'lucide-react';
 
-interface TradingSettings {
-  // Swarm Control
+interface AppSettings {
+  lnmarketsKey: string;
+  lnmarketsSecret: string;
+  lnmarketsPassphrase: string;
+  lnmarketsNetwork: 'mainnet' | 'testnet';
   autoStartSwarm: boolean;
   autoExecuteTrades: boolean;
-  
-  // Execution
   minTradeConfidence: number;
   maxOpenPositions: number;
   tradeCooldownMinutes: number;
-  
-  // Risk Management
   maxPositionSizePercent: number;
   maxExposurePercent: number;
   maxLeverage: number;
   defaultStopLossPercent: number;
   defaultTakeProfitPercent: number;
   maxDailyLossPercent: number;
-  
-  // Signal Sources
   useMarketAnalyst: boolean;
   useTradingView: boolean;
   useResearcher: boolean;
   requireMultipleSources: boolean;
-  
-  // TradingView
   tradingViewEnabled: boolean;
   tradingViewApiUrl: string;
   tradingViewSymbol: string;
   tradingViewExchange: string;
   tradingViewTimeframes: string[];
   tradingViewRequireStrong: boolean;
-  
-  // Optional Features
-  enableOnChainMetrics: boolean;
   enableTelegramNotifications: boolean;
+  telegramBotToken: string;
   telegramChatId: string;
+  enableOnChainMetrics: boolean;
+  controlApiKey: string;
+  debugMode: boolean;
+}
+
+interface ConfigStatus {
+  lnMarketsConfigured: boolean;
+  network: string;
+  autoStartSwarm: boolean;
+  autoExecuteTrades: boolean;
+  tradingViewEnabled: boolean;
+  debugMode: boolean;
 }
 
 export function meta({}: Route.MetaArgs) {
   return [
     { title: 'Settings - LN Markets Trading Bot' },
+    { name: 'description', content: 'Configure your trading bot settings' },
   ];
 }
 
-export default function DashboardSettings() {
-  const [settings, setSettings] = useState<TradingSettings | null>(null);
-  const [defaults, setDefaults] = useState<TradingSettings | null>(null);
+export default function SettingsPage() {
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [status, setStatus] = useState<ConfigStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [showSecrets, setShowSecrets] = useState(false);
+  const [activeTab, setActiveTab] = useState('lnmarkets');
 
-  // Load settings from API
-  useEffect(() => {
-    loadSettings();
-  }, []);
-
-  const loadSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     try {
-      setLoading(true);
-      const response = await fetch('/api/settings');
-      const data = await response.json();
-      
-      if (data.success) {
+      const [settingsRes, statusRes] = await Promise.all([
+        fetch('/api/settings'),
+        fetch('/api/settings?action=status'),
+      ]);
+
+      if (settingsRes.ok) {
+        const data = await settingsRes.json();
         setSettings(data.data.settings);
-        setDefaults(data.data.defaults);
-      } else {
-        setMessage({ type: 'error', text: data.error || 'Failed to load settings' });
       }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Failed to connect to server' });
+
+      if (statusRes.ok) {
+        const data = await statusRes.json();
+        setStatus(data.data);
+      }
+
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch settings');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleSave = async () => {
-    if (!settings) return;
-    
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  const saveSettings = async (updates: Partial<AppSettings>) => {
     setSaving(true);
-    setMessage(null);
-    
+    setError(null);
+    setSuccess(null);
+
     try {
-      const response = await fetch('/api/settings', {
+      const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(updates),
       });
 
-      const data = await response.json();
-      
+      const data = await res.json();
+
       if (data.success) {
-        setMessage({ type: 'success', text: 'Settings saved successfully!' });
-        setSettings(data.data);
+        setSuccess('Settings saved successfully');
+        await fetchSettings();
+        setTimeout(() => setSuccess(null), 3000);
       } else {
-        throw new Error(data.error || 'Failed to save');
+        setError(data.error || 'Failed to save settings');
       }
-    } catch (error) {
-      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to save settings' });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleReset = async () => {
-    if (!confirm('Reset all settings to defaults? This cannot be undone.')) return;
-    
-    setSaving(true);
-    try {
-      const response = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reset' }),
-      });
+  const configureLNMarkets = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const formData = new FormData(form);
 
-      const data = await response.json();
-      
-      if (data.success) {
-        setSettings(data.data);
-        setMessage({ type: 'success', text: 'Settings reset to defaults' });
-      }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Failed to reset settings' });
-    } finally {
-      setSaving(false);
+    await saveSettings({
+      lnmarketsKey: formData.get('apiKey') as string,
+      lnmarketsSecret: formData.get('apiSecret') as string,
+      lnmarketsPassphrase: formData.get('passphrase') as string,
+      lnmarketsNetwork: formData.get('network') as 'mainnet' | 'testnet',
+    });
+  };
+
+  const updateSetting = (key: keyof AppSettings, value: any) => {
+    if (settings) {
+      setSettings({ ...settings, [key]: value });
     }
   };
 
-  const updateSetting = <K extends keyof TradingSettings>(key: K, value: TradingSettings[K]) => {
-    if (!settings) return;
-    setSettings({ ...settings, [key]: value });
-  };
-
-  const Toggle = ({ enabled, onToggle, label, warning }: { enabled: boolean; onToggle: () => void; label: string; warning?: boolean }) => (
-    <button
-      onClick={onToggle}
-      className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-        enabled 
-          ? warning 
-            ? 'bg-orange-600/20 text-orange-400' 
-            : 'bg-green-600/20 text-green-400' 
-          : 'bg-gray-700 text-gray-400'
-      }`}
-    >
-      {enabled ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-      {label}
-    </button>
-  );
+  const tabs = [
+    { id: 'lnmarkets', label: 'LN Markets', icon: Zap },
+    { id: 'swarm', label: 'Swarm Control', icon: Bot },
+    { id: 'risk', label: 'Risk Management', icon: Shield },
+    { id: 'signals', label: 'Signal Sources', icon: TrendingUp },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
+    { id: 'advanced', label: 'Advanced', icon: Wrench },
+  ];
 
   if (loading) {
     return (
@@ -179,347 +179,578 @@ export default function DashboardSettings() {
     );
   }
 
-  if (!settings) {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-          <h1 className="text-xl text-white mb-2">Failed to load settings</h1>
-          <button onClick={loadSettings} className="text-orange-500 hover:underline">
-            Try again
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gray-900 text-white">
       {/* Header */}
       <header className="bg-gray-800 border-b border-gray-700">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link to="/dashboard" className="p-2 hover:bg-gray-700 rounded-lg">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link to="/dashboard" className="flex items-center gap-2 text-gray-400 hover:text-white">
               <ArrowLeft className="w-5 h-5" />
+              Dashboard
             </Link>
-            <Settings className="w-6 h-6 text-orange-500" />
-            <h1 className="text-xl font-bold">Bot Settings</h1>
+            <div className="flex items-center gap-2">
+              <Settings className="w-6 h-6 text-orange-500" />
+              <h1 className="text-xl font-bold">Settings</h1>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleReset}
-              disabled={saving}
-              className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 rounded-lg"
-            >
-              <RotateCcw className="w-4 h-4" />
-              Reset
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 rounded-lg"
-            >
-              <Save className="w-4 h-4" />
-              {saving ? 'Saving...' : 'Save Settings'}
-            </button>
+          <div className="flex items-center gap-3">
+            {status?.lnMarketsConfigured ? (
+              <div className="flex items-center gap-2 text-green-400">
+                <CheckCircle className="w-5 h-5" />
+                <span className="text-sm">LN Markets Connected ({status.network})</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-yellow-400">
+                <AlertTriangle className="w-5 h-5" />
+                <span className="text-sm">LN Markets Not Configured</span>
+              </div>
+            )}
           </div>
         </div>
       </header>
 
-      {message && (
-        <div className={`px-4 py-3 ${message.type === 'success' ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
-          <div className="max-w-4xl mx-auto flex items-center gap-2">
-            {message.type === 'error' && <AlertTriangle className="w-4 h-4" />}
-            {message.text}
-          </div>
+      {/* Alerts */}
+      {error && (
+        <div className="bg-red-500/20 border-b border-red-500 px-4 py-3 flex items-center gap-2 max-w-5xl mx-auto">
+          <XCircle className="w-5 h-5 text-red-500" />
+          <span className="text-red-200">{error}</span>
+        </div>
+      )}
+      {success && (
+        <div className="bg-green-500/20 border-b border-green-500 px-4 py-3 flex items-center gap-2 max-w-5xl mx-auto">
+          <CheckCircle className="w-5 h-5 text-green-500" />
+          <span className="text-green-200">{success}</span>
         </div>
       )}
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-        {/* Swarm Control */}
-        <section className="bg-gray-800 rounded-lg border border-gray-700 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Bot className="w-5 h-5 text-orange-500" />
-            <h2 className="text-lg font-semibold">Swarm Control</h2>
+      <main className="max-w-5xl mx-auto px-4 py-6">
+        <div className="flex gap-6">
+          {/* Sidebar Tabs */}
+          <div className="w-48 flex-shrink-0">
+            <nav className="space-y-1">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition ${
+                    activeTab === tab.id
+                      ? 'bg-orange-500 text-white'
+                      : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                  }`}
+                >
+                  <tab.icon className="w-5 h-5" />
+                  <span>{tab.label}</span>
+                </button>
+              ))}
+            </nav>
           </div>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
+
+          {/* Content */}
+          <div className="flex-1 bg-gray-800 rounded-lg border border-gray-700 p-6">
+            {/* LN Markets Tab */}
+            {activeTab === 'lnmarkets' && (
               <div>
-                <div className="font-medium">Auto-Start Swarm</div>
-                <div className="text-sm text-gray-400">Start trading agents automatically when server starts</div>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-orange-500" />
+                  LN Markets API Configuration
+                </h2>
+                <p className="text-gray-400 mb-6">
+                  Connect your LN Markets account to enable trading. Get your API credentials from{' '}
+                  <a href="https://lnmarkets.com/user/api" target="_blank" rel="noopener noreferrer" className="text-orange-400 hover:underline">
+                    lnmarkets.com/user/api
+                  </a>
+                </p>
+
+                <form onSubmit={configureLNMarkets} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">API Key</label>
+                    <input
+                      type={showSecrets ? 'text' : 'password'}
+                      name="apiKey"
+                      defaultValue={settings?.lnmarketsKey === '••••••••' ? '' : settings?.lnmarketsKey}
+                      placeholder="Enter your API key"
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">API Secret</label>
+                    <input
+                      type={showSecrets ? 'text' : 'password'}
+                      name="apiSecret"
+                      defaultValue={settings?.lnmarketsSecret === '••••••••' ? '' : settings?.lnmarketsSecret}
+                      placeholder="Enter your API secret"
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Passphrase</label>
+                    <input
+                      type={showSecrets ? 'text' : 'password'}
+                      name="passphrase"
+                      defaultValue={settings?.lnmarketsPassphrase === '••••••••' ? '' : settings?.lnmarketsPassphrase}
+                      placeholder="Enter your passphrase"
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Network</label>
+                    <select
+                      name="network"
+                      defaultValue={settings?.lnmarketsNetwork || 'testnet'}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-orange-500"
+                    >
+                      <option value="testnet">Testnet (Paper Trading)</option>
+                      <option value="mainnet">Mainnet (Real Money)</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowSecrets(!showSecrets)}
+                      className="flex items-center gap-2 text-gray-400 hover:text-white"
+                    >
+                      {showSecrets ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showSecrets ? 'Hide' : 'Show'} credentials
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-lg disabled:opacity-50"
+                    >
+                      {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      Save API Credentials
+                    </button>
+                  </div>
+                </form>
               </div>
-              <Toggle
-                enabled={settings.autoStartSwarm}
-                onToggle={() => updateSetting('autoStartSwarm', !settings.autoStartSwarm)}
-                label={settings.autoStartSwarm ? 'ON' : 'OFF'}
-              />
-            </div>
-            <div className="flex items-center justify-between">
+            )}
+
+            {/* Swarm Control Tab */}
+            {activeTab === 'swarm' && settings && (
               <div>
-                <div className="font-medium flex items-center gap-2">
-                  Auto-Execute Trades
-                  <AlertTriangle className="w-4 h-4 text-orange-500" />
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <Bot className="w-5 h-5 text-orange-500" />
+                  Swarm Control
+                </h2>
+
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between p-4 bg-gray-700/50 rounded-lg">
+                    <div>
+                      <div className="font-medium">Auto-Start Swarm</div>
+                      <div className="text-sm text-gray-400">Start trading agents automatically when the server starts</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.autoStartSwarm}
+                        onChange={(e) => saveSettings({ autoStartSwarm: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 peer-focus:ring-2 peer-focus:ring-orange-500 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+                    <div>
+                      <div className="font-medium text-red-400">⚠️ Auto-Execute Trades</div>
+                      <div className="text-sm text-gray-400">Automatically execute trades when signals are generated</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.autoExecuteTrades}
+                        onChange={(e) => {
+                          if (e.target.checked && !confirm('Are you sure? This will enable automatic trading with real funds!')) {
+                            return;
+                          }
+                          saveSettings({ autoExecuteTrades: e.target.checked });
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 peer-focus:ring-2 peer-focus:ring-red-500 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-1">Min Trade Confidence</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={settings.minTradeConfidence}
+                        onChange={(e) => updateSetting('minTradeConfidence', parseInt(e.target.value))}
+                        onBlur={() => saveSettings({ minTradeConfidence: settings.minTradeConfidence })}
+                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-1">Max Open Positions</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="10"
+                        value={settings.maxOpenPositions}
+                        onChange={(e) => updateSetting('maxOpenPositions', parseInt(e.target.value))}
+                        onBlur={() => saveSettings({ maxOpenPositions: settings.maxOpenPositions })}
+                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-1">Trade Cooldown (minutes)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="60"
+                        value={settings.tradeCooldownMinutes}
+                        onChange={(e) => updateSetting('tradeCooldownMinutes', parseInt(e.target.value))}
+                        onBlur={() => saveSettings({ tradeCooldownMinutes: settings.tradeCooldownMinutes })}
+                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="text-sm text-gray-400">⚠️ Automatically execute trades based on signals</div>
               </div>
-              <Toggle
-                enabled={settings.autoExecuteTrades}
-                onToggle={() => updateSetting('autoExecuteTrades', !settings.autoExecuteTrades)}
-                label={settings.autoExecuteTrades ? 'ON' : 'OFF'}
-                warning
-              />
-            </div>
-          </div>
-        </section>
+            )}
 
-        {/* Signal Sources */}
-        <section className="bg-gray-800 rounded-lg border border-gray-700 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp className="w-5 h-5 text-orange-500" />
-            <h2 className="text-lg font-semibold">Signal Sources</h2>
-          </div>
-          <p className="text-gray-400 text-sm mb-4">
-            Choose which signal sources the bot should use for trading decisions.
-          </p>
-          <div className="grid grid-cols-2 gap-4">
-            <Toggle
-              enabled={settings.useMarketAnalyst}
-              onToggle={() => updateSetting('useMarketAnalyst', !settings.useMarketAnalyst)}
-              label="Market Analyst (TA)"
-            />
-            <Toggle
-              enabled={settings.useTradingView}
-              onToggle={() => updateSetting('useTradingView', !settings.useTradingView)}
-              label="TradingView Signals"
-            />
-            <Toggle
-              enabled={settings.useResearcher}
-              onToggle={() => updateSetting('useResearcher', !settings.useResearcher)}
-              label="News Sentiment"
-            />
-            <Toggle
-              enabled={settings.requireMultipleSources}
-              onToggle={() => updateSetting('requireMultipleSources', !settings.requireMultipleSources)}
-              label="Require Agreement"
-            />
-          </div>
-        </section>
-
-        {/* Execution Settings */}
-        <section className="bg-gray-800 rounded-lg border border-gray-700 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Zap className="w-5 h-5 text-orange-500" />
-            <h2 className="text-lg font-semibold">Execution Settings</h2>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Min Confidence (%)</label>
-              <input
-                type="number"
-                value={settings.minTradeConfidence}
-                onChange={(e) => updateSetting('minTradeConfidence', Number(e.target.value))}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
-                min={0}
-                max={100}
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Max Open Positions</label>
-              <input
-                type="number"
-                value={settings.maxOpenPositions}
-                onChange={(e) => updateSetting('maxOpenPositions', Number(e.target.value))}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
-                min={1}
-                max={10}
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Cooldown (minutes)</label>
-              <input
-                type="number"
-                value={settings.tradeCooldownMinutes}
-                onChange={(e) => updateSetting('tradeCooldownMinutes', Number(e.target.value))}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
-                min={0}
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* Risk Management */}
-        <section className="bg-gray-800 rounded-lg border border-gray-700 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Shield className="w-5 h-5 text-orange-500" />
-            <h2 className="text-lg font-semibold">Risk Management</h2>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Max Position Size (%)</label>
-              <input
-                type="number"
-                value={settings.maxPositionSizePercent}
-                onChange={(e) => updateSetting('maxPositionSizePercent', Number(e.target.value))}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
-                min={1}
-                max={100}
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Max Total Exposure (%)</label>
-              <input
-                type="number"
-                value={settings.maxExposurePercent}
-                onChange={(e) => updateSetting('maxExposurePercent', Number(e.target.value))}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
-                min={1}
-                max={100}
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Max Leverage</label>
-              <input
-                type="number"
-                value={settings.maxLeverage}
-                onChange={(e) => updateSetting('maxLeverage', Number(e.target.value))}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
-                min={1}
-                max={100}
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Default Stop Loss (%)</label>
-              <input
-                type="number"
-                value={settings.defaultStopLossPercent}
-                onChange={(e) => updateSetting('defaultStopLossPercent', Number(e.target.value))}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
-                min={0.5}
-                max={50}
-                step={0.5}
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Default Take Profit (%)</label>
-              <input
-                type="number"
-                value={settings.defaultTakeProfitPercent}
-                onChange={(e) => updateSetting('defaultTakeProfitPercent', Number(e.target.value))}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
-                min={0.5}
-                max={100}
-                step={0.5}
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">Max Daily Loss (%)</label>
-              <input
-                type="number"
-                value={settings.maxDailyLossPercent}
-                onChange={(e) => updateSetting('maxDailyLossPercent', Number(e.target.value))}
-                className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
-                min={1}
-                max={100}
-              />
-              <div className="text-xs text-gray-500 mt-1">Trading stops after this loss</div>
-            </div>
-          </div>
-        </section>
-
-        {/* TradingView Integration */}
-        <section className="bg-gray-800 rounded-lg border border-gray-700 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <TrendingUp className="w-5 h-5 text-orange-500" />
-            <h2 className="text-lg font-semibold">TradingView Integration</h2>
-          </div>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            {/* Risk Management Tab */}
+            {activeTab === 'risk' && settings && (
               <div>
-                <div className="font-medium">Enable TradingView Signals</div>
-                <div className="text-sm text-gray-400">Fetch signals from TradingView TA API</div>
-              </div>
-              <Toggle
-                enabled={settings.tradingViewEnabled}
-                onToggle={() => updateSetting('tradingViewEnabled', !settings.tradingViewEnabled)}
-                label={settings.tradingViewEnabled ? 'ON' : 'OFF'}
-              />
-            </div>
-            
-            {settings.tradingViewEnabled && (
-              <>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">TradingView API URL</label>
-                  <input
-                    type="text"
-                    value={settings.tradingViewApiUrl}
-                    onChange={(e) => updateSetting('tradingViewApiUrl', e.target.value)}
-                    placeholder="http://localhost:8080"
-                    className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
-                  />
-                </div>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-orange-500" />
+                  Risk Management
+                </h2>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">Symbol</label>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Max Position Size (%)</label>
                     <input
-                      type="text"
-                      value={settings.tradingViewSymbol}
-                      onChange={(e) => updateSetting('tradingViewSymbol', e.target.value)}
-                      className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={settings.maxPositionSizePercent}
+                      onChange={(e) => updateSetting('maxPositionSizePercent', parseInt(e.target.value))}
+                      onBlur={() => saveSettings({ maxPositionSizePercent: settings.maxPositionSizePercent })}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Maximum % of balance per position</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Max Total Exposure (%)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={settings.maxExposurePercent}
+                      onChange={(e) => updateSetting('maxExposurePercent', parseInt(e.target.value))}
+                      onBlur={() => saveSettings({ maxExposurePercent: settings.maxExposurePercent })}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Maximum % of balance in all positions</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Max Leverage</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={settings.maxLeverage}
+                      onChange={(e) => updateSetting('maxLeverage', parseInt(e.target.value))}
+                      onBlur={() => saveSettings({ maxLeverage: settings.maxLeverage })}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">Exchange</label>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Default Stop Loss (%)</label>
                     <input
-                      type="text"
-                      value={settings.tradingViewExchange}
-                      onChange={(e) => updateSetting('tradingViewExchange', e.target.value)}
-                      className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
+                      type="number"
+                      min="0.5"
+                      max="50"
+                      step="0.5"
+                      value={settings.defaultStopLossPercent}
+                      onChange={(e) => updateSetting('defaultStopLossPercent', parseFloat(e.target.value))}
+                      onBlur={() => saveSettings({ defaultStopLossPercent: settings.defaultStopLossPercent })}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Default Take Profit (%)</label>
+                    <input
+                      type="number"
+                      min="0.5"
+                      max="100"
+                      step="0.5"
+                      value={settings.defaultTakeProfitPercent}
+                      onChange={(e) => updateSetting('defaultTakeProfitPercent', parseFloat(e.target.value))}
+                      onBlur={() => saveSettings({ defaultTakeProfitPercent: settings.defaultTakeProfitPercent })}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Max Daily Loss (%)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={settings.maxDailyLossPercent}
+                      onChange={(e) => updateSetting('maxDailyLossPercent', parseInt(e.target.value))}
+                      onBlur={() => saveSettings({ maxDailyLossPercent: settings.maxDailyLossPercent })}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Stop trading after this daily loss</p>
+                  </div>
                 </div>
-                <Toggle
-                  enabled={settings.tradingViewRequireStrong}
-                  onToggle={() => updateSetting('tradingViewRequireStrong', !settings.tradingViewRequireStrong)}
-                  label="Require STRONG signals only"
-                />
-              </>
+              </div>
             )}
-          </div>
-        </section>
 
-        {/* Optional Features */}
-        <section className="bg-gray-800 rounded-lg border border-gray-700 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Settings className="w-5 h-5 text-orange-500" />
-            <h2 className="text-lg font-semibold">Optional Features</h2>
-          </div>
-          <div className="space-y-4">
-            <Toggle
-              enabled={settings.enableOnChainMetrics}
-              onToggle={() => updateSetting('enableOnChainMetrics', !settings.enableOnChainMetrics)}
-              label="Enable On-Chain Metrics"
-            />
-            <div className="flex items-center justify-between">
-              <Toggle
-                enabled={settings.enableTelegramNotifications}
-                onToggle={() => updateSetting('enableTelegramNotifications', !settings.enableTelegramNotifications)}
-                label="Telegram Notifications"
-              />
-            </div>
-            {settings.enableTelegramNotifications && (
+            {/* Signal Sources Tab */}
+            {activeTab === 'signals' && settings && (
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Telegram Chat ID</label>
-                <input
-                  type="text"
-                  value={settings.telegramChatId}
-                  onChange={(e) => updateSetting('telegramChatId', e.target.value)}
-                  placeholder="Your Telegram chat ID"
-                  className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2"
-                />
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-orange-500" />
+                  Signal Sources
+                </h2>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-gray-700/50 rounded-lg">
+                    <div>
+                      <div className="font-medium">Market Analyst</div>
+                      <div className="text-sm text-gray-400">Built-in technical analysis (RSI, MACD, trends)</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.useMarketAnalyst}
+                        onChange={(e) => saveSettings({ useMarketAnalyst: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-gray-700/50 rounded-lg">
+                    <div>
+                      <div className="font-medium">TradingView Signals</div>
+                      <div className="text-sm text-gray-400">External TradingView technical analysis</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.useTradingView}
+                        onChange={(e) => saveSettings({ useTradingView: e.target.checked, tradingViewEnabled: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                    </label>
+                  </div>
+
+                  {settings.tradingViewEnabled && (
+                    <div className="ml-4 p-4 bg-gray-700/30 rounded-lg space-y-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-1">TradingView API URL</label>
+                        <input
+                          type="text"
+                          value={settings.tradingViewApiUrl}
+                          onChange={(e) => updateSetting('tradingViewApiUrl', e.target.value)}
+                          onBlur={() => saveSettings({ tradingViewApiUrl: settings.tradingViewApiUrl })}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-1">Symbol</label>
+                          <input
+                            type="text"
+                            value={settings.tradingViewSymbol}
+                            onChange={(e) => updateSetting('tradingViewSymbol', e.target.value)}
+                            onBlur={() => saveSettings({ tradingViewSymbol: settings.tradingViewSymbol })}
+                            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-1">Exchange</label>
+                          <input
+                            type="text"
+                            value={settings.tradingViewExchange}
+                            onChange={(e) => updateSetting('tradingViewExchange', e.target.value)}
+                            onBlur={() => saveSettings({ tradingViewExchange: settings.tradingViewExchange })}
+                            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between p-4 bg-gray-700/50 rounded-lg">
+                    <div>
+                      <div className="font-medium">Market Researcher</div>
+                      <div className="text-sm text-gray-400">News sentiment and on-chain analysis</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.useResearcher}
+                        onChange={(e) => saveSettings({ useResearcher: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-gray-700/50 rounded-lg">
+                    <div>
+                      <div className="font-medium">Require Multiple Sources</div>
+                      <div className="text-sm text-gray-400">Only trade when multiple sources agree</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.requireMultipleSources}
+                        onChange={(e) => saveSettings({ requireMultipleSources: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Notifications Tab */}
+            {activeTab === 'notifications' && settings && (
+              <div>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-orange-500" />
+                  Notifications
+                </h2>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-gray-700/50 rounded-lg">
+                    <div>
+                      <div className="font-medium">Telegram Notifications</div>
+                      <div className="text-sm text-gray-400">Receive trade alerts via Telegram</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.enableTelegramNotifications}
+                        onChange={(e) => saveSettings({ enableTelegramNotifications: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                    </label>
+                  </div>
+
+                  {settings.enableTelegramNotifications && (
+                    <div className="ml-4 p-4 bg-gray-700/30 rounded-lg space-y-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-1">Bot Token</label>
+                        <input
+                          type={showSecrets ? 'text' : 'password'}
+                          value={settings.telegramBotToken === '••••••••' ? '' : settings.telegramBotToken}
+                          onChange={(e) => updateSetting('telegramBotToken', e.target.value)}
+                          onBlur={() => saveSettings({ telegramBotToken: settings.telegramBotToken })}
+                          placeholder="Enter your Telegram bot token"
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-1">Chat ID</label>
+                        <input
+                          type="text"
+                          value={settings.telegramChatId}
+                          onChange={(e) => updateSetting('telegramChatId', e.target.value)}
+                          onBlur={() => saveSettings({ telegramChatId: settings.telegramChatId })}
+                          placeholder="Enter your chat ID"
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Advanced Tab */}
+            {activeTab === 'advanced' && settings && (
+              <div>
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <Wrench className="w-5 h-5 text-orange-500" />
+                  Advanced Settings
+                </h2>
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-gray-700/50 rounded-lg">
+                    <div>
+                      <div className="font-medium">Debug Mode</div>
+                      <div className="text-sm text-gray-400">Enable verbose logging</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.debugMode}
+                        onChange={(e) => saveSettings({ debugMode: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-gray-700/50 rounded-lg">
+                    <div>
+                      <div className="font-medium">On-Chain Metrics</div>
+                      <div className="text-sm text-gray-400">Enable on-chain data fetching</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.enableOnChainMetrics}
+                        onChange={(e) => saveSettings({ enableOnChainMetrics: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Control API Key</label>
+                    <input
+                      type={showSecrets ? 'text' : 'password'}
+                      value={settings.controlApiKey === '••••••••' ? '' : settings.controlApiKey}
+                      onChange={(e) => updateSetting('controlApiKey', e.target.value)}
+                      onBlur={() => saveSettings({ controlApiKey: settings.controlApiKey })}
+                      placeholder="API key for external control (e.g., OpenClaw)"
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg"
+                    />
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-700">
+                    <button
+                      onClick={async () => {
+                        if (confirm('Are you sure you want to reset all settings to defaults?')) {
+                          const res = await fetch('/api/settings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'reset' }),
+                          });
+                          if (res.ok) {
+                            setSuccess('Settings reset to defaults');
+                            fetchSettings();
+                          }
+                        }
+                      }}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg"
+                    >
+                      Reset All Settings
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
-        </section>
+        </div>
       </main>
     </div>
   );

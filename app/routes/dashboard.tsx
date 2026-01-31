@@ -4,6 +4,7 @@
 
 import type { Route } from './+types/dashboard';
 import { useEffect, useState, useCallback } from 'react';
+import { Link } from 'react-router';
 import {
   Activity,
   TrendingUp,
@@ -17,6 +18,7 @@ import {
   RefreshCw,
   Zap,
   Settings,
+  MessageSquare,
 } from 'lucide-react';
 
 interface SwarmStatus {
@@ -190,6 +192,13 @@ export default function Dashboard() {
               )}
               {status?.running ? 'Running' : 'Stopped'}
             </div>
+            <Link
+              to="/dashboard/settings"
+              className="flex items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded"
+            >
+              <Settings className="w-4 h-4" />
+              Settings
+            </Link>
           </div>
         </div>
       </header>
