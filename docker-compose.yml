@@ -1,7 +1,9 @@
 version: '3.8'
 
 services:
+  # ===========================================
   # Trading Bot Application
+  # ===========================================
   app:
     build:
       context: .
@@ -13,24 +15,34 @@ services:
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-tradingbot}@db:5432/lnmarkets_bot
+      - REDIS_URL=redis://redis:6379
+      - TRADINGVIEW_SIGNAL_URL=http://tradingview-ta:8000
+      - TRADINGVIEW_SIGNAL_SYMBOL=${TRADINGVIEW_SYMBOL:-BTCUSD}
+      - TRADINGVIEW_SIGNAL_EXCHANGE=${TRADINGVIEW_EXCHANGE:-COINBASE}
       - LNMARKETS_KEY=${LNMARKETS_KEY}
       - LNMARKETS_SECRET=${LNMARKETS_SECRET}
       - LNMARKETS_PASSPHRASE=${LNMARKETS_PASSPHRASE}
-      - LNMARKETS_NETWORK=${LNMARKETS_NETWORK:-mainnet}
-      - AUTO_START_SWARM=${AUTO_START_SWARM:-false}
-      - AUTO_EXECUTE_TRADES=${AUTO_EXECUTE_TRADES:-false}
+      - LNMARKETS_NETWORK=${LNMARKETS_NETWORK:-testnet}
+      - CONTROL_API_KEY=${CONTROL_API_KEY:-}
     depends_on:
       db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      tradingview-ta:
         condition: service_healthy
     networks:
       - trading-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/status"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/status').then(r => process.exit(r.ok ? 0 : 1))"]
       interval: 30s
       timeout: 10s
+      start_period: 10s
       retries: 3
 
+  # ===========================================
   # PostgreSQL Database
+  # ===========================================
   db:
     image: postgres:16-alpine
     container_name: lnmarkets-db
@@ -51,11 +63,14 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis for job queue (optional, for BullMQ)
+  # ===========================================
+  # Redis (job queue, caching)
+  # ===========================================
   redis:
     image: redis:7-alpine
     container_name: lnmarkets-redis
     restart: unless-stopped
+    command: redis-server --appendonly yes
     ports:
       - "6379:6379"
     volumes:
@@ -67,6 +82,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # ===========================================
+  # TradingView Technical Analysis API
+  # ===========================================
+  tradingview-ta:
+    build:
+      context: ../tradingview-ta
+      dockerfile: Dockerfile
+    container_name: lnmarkets-tradingview-ta
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - WORKERS=${TA_WORKERS:-2}
+    networks:
+      - trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 3
 
 volumes:
   postgres_data:
